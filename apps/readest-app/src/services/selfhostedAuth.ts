@@ -6,6 +6,9 @@ export interface SelfhostedLoginResult {
 export interface SelfhostedUser {
   id: string;
   email?: string;
+  // Mirrors the Supabase `User` shape so UI code can read avatar/name metadata
+  // from either auth backend through the same accessor.
+  user_metadata?: Record<string, unknown>;
 }
 
 const DEVICE_ID_KEY = 'selfhosted_device_id';

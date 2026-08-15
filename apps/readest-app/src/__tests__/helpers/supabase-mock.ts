@@ -18,7 +18,7 @@ export const setupSupabaseMocks = async (
 ) => {
   const { supabase, createSupabaseAdminClient } = await import('@/utils/supabase');
 
-  vi.mocked(supabase.auth.getUser).mockResolvedValue(
+  vi.mocked(supabase!.auth.getUser).mockResolvedValue(
     customResponses.getUser || {
       data: {
         user: {
@@ -34,7 +34,7 @@ export const setupSupabaseMocks = async (
     },
   );
 
-  vi.mocked(supabase.from).mockReturnValue({
+  vi.mocked(supabase!.from).mockReturnValue({
     select: vi.fn(() => ({
       eq: vi.fn(() => ({
         single: vi.fn().mockResolvedValue(customResponses.select || { data: null, error: null }),
@@ -45,7 +45,7 @@ export const setupSupabaseMocks = async (
       eq: vi.fn().mockResolvedValue(customResponses.update || { data: {}, error: null }),
     })),
     insert: vi.fn().mockResolvedValue(customResponses.insert || { data: {}, error: null }),
-  } as unknown as ReturnType<typeof supabase.from>);
+  } as unknown as ReturnType<NonNullable<typeof supabase>['from']>);
 
   vi.mocked(createSupabaseAdminClient).mockReturnValue({
     from: vi.fn(() => ({
