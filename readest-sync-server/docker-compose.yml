@@ -7,9 +7,6 @@ services:
     volumes:
       - ./data:/app/data      # 持久化 sqlite + 本地文件
     restart: unless-stopped
-    depends_on:
-      - postgres
-      - minio
 
   postgres:
     image: postgres:16-alpine
