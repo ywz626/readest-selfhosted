@@ -34,7 +34,7 @@ func (h *StorageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		ReplicaKind string `json:"replicaKind"`
 		ReplicaID   string `json:"replicaId"`
 		Temp        bool   `json:"temp"`
-		Media       bool   `json:"media"`
+		Media       string `json:"media"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":"bad request","code":"VALIDATION"}`, http.StatusBadRequest)
@@ -57,7 +57,7 @@ func buildKey(uid string, body struct {
 	ReplicaKind string `json:"replicaKind"`
 	ReplicaID   string `json:"replicaId"`
 	Temp        bool   `json:"temp"`
-	Media       bool   `json:"media"`
+	Media       string `json:"media"`
 }) string {
 	if body.ReplicaKind != "" && body.ReplicaID != "" {
 		return uid + "/replicas/" + body.ReplicaKind + "/" + body.ReplicaID + "/" + body.FileName
@@ -156,12 +156,15 @@ func (h *StorageHandler) List(w http.ResponseWriter, r *http.Request) {
 	files := make([]map[string]interface{}, 0, len(pageItems))
 	for _, f := range pageItems {
 		bh := bookHashFromKey(f.Key)
+		rk, rid := replicaInfoFromKey(f.Key)
 		files = append(files, map[string]interface{}{
-			"file_key":    f.Key,
-			"file_size":   f.Size,
-			"book_hash":   bh,
-			"created_at":  f.UpdatedAt,
-			"updated_at":  f.UpdatedAt,
+			"file_key":     f.Key,
+			"file_size":    f.Size,
+			"book_hash":    bh,
+			"replica_kind": rk,
+			"replica_id":   rid,
+			"created_at":   f.UpdatedAt,
+			"updated_at":   f.UpdatedAt,
 		})
 	}
 	writeJSON(w, map[string]interface{}{

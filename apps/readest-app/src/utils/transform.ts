@@ -39,6 +39,21 @@ export const transformBookConfigToDB = (bookConfig: unknown, userId: string): DB
   };
 };
 
+/**
+ * Safe JSON.parse: a corrupted single field (e.g. an object that was
+ * stringified as "[object Object]") must not abort loading the whole
+ * library. Return undefined on parse failure so the rest of the book
+ * still loads.
+ */
+const safeParseField = <T>(value: unknown): T | undefined => {
+  if (typeof value !== 'string') return undefined;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+};
+
 export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfig => {
   const {
     book_hash,
@@ -56,10 +71,10 @@ export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfi
     metaHash: meta_hash,
     location,
     xpointer,
-    progress: progress && JSON.parse(progress),
-    rsvpPosition: rsvp_position && JSON.parse(rsvp_position),
-    searchConfig: search_config && JSON.parse(search_config),
-    viewSettings: view_settings && JSON.parse(view_settings),
+    progress: safeParseField(progress),
+    rsvpPosition: safeParseField(rsvp_position),
+    searchConfig: safeParseField(search_config),
+    viewSettings: safeParseField(view_settings),
     updatedAt: new Date(updated_at!).getTime(),
   } as BookConfig;
 };
@@ -156,7 +171,9 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
     coverHash: cover_hash ?? null,
     coverUpdatedAt: cover_updated_at ? new Date(cover_updated_at).getTime() : null,
     sourceTitle: source_title,
-    metadata: metadata ? JSON.parse(metadata) : null,
+    // The self-hosted sync server can hand back a record whose `metadata` is
+    // still an object (or a corrupted string); never let it abort library load.
+    metadata: metadata ? safeParseField(metadata) : undefined,
     metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
     createdAt: new Date(created_at!).getTime(),
     updatedAt: new Date(updated_at!).getTime(),

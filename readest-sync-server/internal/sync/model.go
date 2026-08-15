@@ -34,3 +34,23 @@ type ReplicaKeyRow struct {
 	Salt      string `json:"salt"`
 	CreatedAt string `json:"createdAt"`
 }
+
+// Client sends stat rows in camelCase; we convert them to the snake_case
+// store rows that the pull response also expects.
+type statBookWire struct {
+	BookHash    string  `json:"bookHash"`
+	Title       string  `json:"title"`
+	Authors     string  `json:"authors"`
+	UpdatedAtMs *int64  `json:"updatedAtMs"`
+	DeletedAt   *int64  `json:"deletedAt"`
+}
+
+type statPageWire struct {
+	BookHash    string  `json:"bookHash"`
+	Page        int     `json:"page"`
+	StartTime   int64   `json:"startTime"`
+	Duration    int64   `json:"duration"`
+	TotalPages  int64   `json:"totalPages"`
+	UpdatedAtMs *int64  `json:"updatedAtMs"`
+	DeletedAt   *int64  `json:"deletedAt"`
+}

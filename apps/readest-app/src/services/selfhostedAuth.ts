@@ -145,7 +145,32 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
     // Any other non-2xx (400/401/etc.) means the server rejected the code.
     throw new SelfhostedLoginError('invalid code', 'invalid-code', { status });
   }
-  return (await res.json()) as SelfhostedLoginResult;
+  // Read the body as text first so a non-JSON response (HTML error page,
+  // nginx default page, redirect body, stray prefix/BOM) doesn't surface as a
+  // raw `SyntaxError: Unexpected non-whitespace character after JSON` with no
+  // actionable context. A 2xx with an unparseable body means the server
+  // contract changed or a proxy intercepted the response — report it clearly
+  // instead of letting the raw exception leak to the console.
+  const text = await res.text();
+  let parsed: SelfhostedLoginResult;
+  try {
+    parsed = JSON.parse(text) as SelfhostedLoginResult;
+  } catch {
+    throw new SelfhostedLoginError(
+      `Sync server returned a non-JSON response (HTTP ${res.status}); ` +
+        `check the server URL and that ${SELFHOSTED_BASE_URL}/api/auth is reachable`,
+      'server',
+      { status: res.status },
+    );
+  }
+  if (!parsed || typeof parsed.access_token !== 'string') {
+    throw new SelfhostedLoginError(
+      `Sync server response is missing 'access_token' (HTTP ${res.status})`,
+      'server',
+      { status: res.status },
+    );
+  }
+  return parsed;
 }
 
 /**

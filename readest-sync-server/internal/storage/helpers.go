@@ -32,6 +32,19 @@ func bookHashFromKey(key string) *string {
 	return nil
 }
 
+func replicaInfoFromKey(key string) (kind, id *string) {
+	// expected: owner/replicas/<kind>/<id>/<file>
+	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		if p == "replicas" && i+2 < len(parts) {
+			k := parts[i+1]
+			r := parts[i+2]
+			return &k, &r
+		}
+	}
+	return nil, nil
+}
+
 func sortFiles(files []store.FileMeta, by, order string) {
 	asc := order != "desc"
 	less := func(i, j int) bool {

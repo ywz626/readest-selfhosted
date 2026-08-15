@@ -8,7 +8,7 @@ import {
   transformBookFromDB,
 } from '@/utils/transform';
 import { BookConfig, BookNote, Book } from '@/types/book';
-import { DBBookConfig, DBBookNote } from '@/types/records';
+import { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 
 describe('transformBookNoteToDB with xpointer fields', () => {
   it('passes through xpointer0 and xpointer1', () => {
@@ -419,5 +419,42 @@ describe('transformBook metadataUpdatedAt (issue #5438)', () => {
     expect(db.metadata_updated_at).toBeNull();
     const back = transformBookFromDB(db);
     expect(back.metadataUpdatedAt).toBeNull();
+  });
+});
+
+describe('transformBookFromDB with a non-string metadata (self-hosted server bug)', () => {
+  it('does not throw when the server hands back metadata as an object', () => {
+    // A sync server that stores the pushed Book record verbatim returns
+    // `metadata` as an object, which used to abort library load with
+    // `JSON.parse("[object Object]") is not valid JSON`.
+    const db = {
+      user_id: 'u',
+      book_hash: 'h1',
+      format: 'EPUB',
+      title: 'T',
+      author: 'A',
+      created_at: new Date(1700000000000).toISOString(),
+      updated_at: new Date(1700000000000).toISOString(),
+      metadata: { title: 'T', author: 'A' } as unknown,
+      progress: [1, 200],
+    } as DBBook;
+    const book = transformBookFromDB(db);
+    expect(book.metadata).toBeUndefined();
+    expect(book.hash).toBe('h1');
+  });
+
+  it('does not throw on a corrupted metadata string either', () => {
+    const db = {
+      user_id: 'u',
+      book_hash: 'h1',
+      format: 'EPUB',
+      title: 'T',
+      author: 'A',
+      created_at: new Date(1700000000000).toISOString(),
+      updated_at: new Date(1700000000000).toISOString(),
+      metadata: '[object Object]',
+    } as DBBook;
+    const book = transformBookFromDB(db);
+    expect(book.metadata).toBeUndefined();
   });
 });

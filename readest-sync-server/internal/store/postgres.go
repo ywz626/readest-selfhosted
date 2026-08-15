@@ -136,13 +136,15 @@ func (s *PostgresStore) PullBooks(ctx context.Context, userID, sinceISO string, 
 func (s *PostgresStore) UpsertNote(ctx context.Context, userID string, data []byte) error {
 	var noteID string
 	var updatedAt *int64
+	var deletedAt *int64
 	_ = jsonUnmarshalField(data, "id", &noteID)
 	_ = jsonUnmarshalField(data, "updated_at", &updatedAt)
+	_ = jsonUnmarshalField(data, "deleted_at", &deletedAt)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO notes (user_id,note_id,updated_at,deleted_at,data)
-		VALUES ($1,$2,$3,NULL,$4)
+		VALUES ($1,$2,$3,$4,$5)
 		ON CONFLICT(user_id,note_id) DO UPDATE SET updated_at=EXCLUDED.updated_at, deleted_at=EXCLUDED.deleted_at, data=EXCLUDED.data`,
-		userID, noteID, updatedAt, string(data))
+		userID, noteID, updatedAt, deletedAt, string(data))
 	return err
 }
 
@@ -165,9 +167,10 @@ func (s *PostgresStore) PullNotes(ctx context.Context, userID string, sinceMs in
 }
 
 func (s *PostgresStore) UpsertConfig(ctx context.Context, userID string, data []byte) error {
+	// One config row per book, keyed by book_hash.
 	var configID string
 	var updatedAt *int64
-	_ = jsonUnmarshalField(data, "id", &configID)
+	_ = jsonUnmarshalField(data, "book_hash", &configID)
 	_ = jsonUnmarshalField(data, "updated_at", &updatedAt)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO configs (user_id,config_id,updated_at,data)

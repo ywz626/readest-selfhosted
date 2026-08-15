@@ -90,11 +90,11 @@ func (h *SyncHandler) pull(w http.ResponseWriter, r *http.Request) {
 func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 	uid := middleware.UserID(r)
 	var payload struct {
-		Books     []json.RawMessage    `json:"books"`
-		Notes     []json.RawMessage    `json:"notes"`
-		Configs   []json.RawMessage    `json:"configs"`
-		StatBooks []store.StatBookRow  `json:"statBooks"`
-		StatPages []store.StatPageRow  `json:"statPages"`
+		Books     []json.RawMessage `json:"books"`
+		Notes     []json.RawMessage `json:"notes"`
+		Configs   []json.RawMessage `json:"configs"`
+		StatBooks []statBookWire    `json:"statBooks"`
+		StatPages []statPageWire    `json:"statPages"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, `{"error":"bad request","code":"VALIDATION"}`, http.StatusBadRequest)
@@ -104,60 +104,111 @@ func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, raw := range payload.Books {
-		var b store.BookRow
-		if err := json.Unmarshal(raw, &b); err != nil {
+		var p pushedBook
+		if err := json.Unmarshal(raw, &p); err != nil {
 			continue
 		}
-		b.UserID = uid
-		if b.SyncedAt == "" {
-			b.SyncedAt = now
+		if p.Hash == "" {
+			continue
 		}
-		b.Data = raw
+		b := store.BookRow{
+			ID:        p.Hash,
+			UserID:    uid,
+			BookHash:  p.Hash,
+			MetaHash:  p.MetaHash,
+			UpdatedAt: p.UpdatedAt,
+			DeletedAt: p.DeletedAt,
+			SyncedAt:  now,
+			// Convert to DB shape (snake_case, metadata as a JSON string,
+			// ISO-8601 timestamps) so the client's transformBookFromDB can
+			// parse the record it pulls back.
+			Data: mustJSON(bookToDB(&p, uid, now)),
+		}
 		if err := h.ms.UpsertBook(ctx, b); err != nil {
 			writeError(w, err)
 			return
 		}
 	}
 	for _, raw := range payload.Notes {
-		var n struct {
-			ID        string `json:"id"`
-			UpdatedAt *int64 `json:"updated_at"`
+		var p pushedNote
+		if err := json.Unmarshal(raw, &p); err != nil {
+			continue
 		}
-		_ = json.Unmarshal(raw, &n)
-		row := store.NoteRow{UserID: uid, NoteID: n.ID, UpdatedAt: n.UpdatedAt, Data: raw}
-		if err := h.ms.UpsertNote(ctx, uid, mustJSON(row)); err != nil {
+		if p.ID == "" {
+			continue
+		}
+		if err := h.ms.UpsertNote(ctx, uid, mustJSON(noteToDB(&p, uid))); err != nil {
 			writeError(w, err)
 			return
 		}
 	}
 	for _, raw := range payload.Configs {
-		var c struct {
-			ID        string `json:"id"`
-			UpdatedAt *int64 `json:"updated_at"`
+		var p pushedConfig
+		if err := json.Unmarshal(raw, &p); err != nil {
+			continue
 		}
-		_ = json.Unmarshal(raw, &c)
-		row := store.NoteRow{UserID: uid, NoteID: c.ID, UpdatedAt: c.UpdatedAt, Data: raw}
-		if err := h.ms.UpsertConfig(ctx, uid, mustJSON(row)); err != nil {
+		if p.BookHash == "" {
+			continue
+		}
+		if err := h.ms.UpsertConfig(ctx, uid, mustJSON(configToDB(&p, uid))); err != nil {
 			writeError(w, err)
 			return
 		}
 	}
 	if len(payload.StatBooks) > 0 {
-		for i := range payload.StatBooks {
-			payload.StatBooks[i].UserID = uid
+		bookRows := make([]store.StatBookRow, 0, len(payload.StatBooks))
+		for _, w := range payload.StatBooks {
+			if w.BookHash == "" {
+				continue
+			}
+			updatedAtMs := w.UpdatedAtMs
+			if updatedAtMs == nil || *updatedAtMs == 0 {
+				t := time.Now().UnixMilli()
+				updatedAtMs = &t
+			}
+			bookRows = append(bookRows, store.StatBookRow{
+				UserID:      uid,
+				BookHash:    w.BookHash,
+				Title:       w.Title,
+				Authors:     w.Authors,
+				UpdatedAtMs: updatedAtMs,
+				DeletedAt:   w.DeletedAt,
+			})
 		}
-		if err := h.ms.UpsertStatBooks(ctx, payload.StatBooks); err != nil {
-			writeError(w, err)
-			return
+		if len(bookRows) > 0 {
+			if err := h.ms.UpsertStatBooks(ctx, bookRows); err != nil {
+				writeError(w, err)
+				return
+			}
 		}
 	}
 	if len(payload.StatPages) > 0 {
-		for i := range payload.StatPages {
-			payload.StatPages[i].UserID = uid
+		pageRows := make([]store.StatPageRow, 0, len(payload.StatPages))
+		for _, w := range payload.StatPages {
+			if w.BookHash == "" {
+				continue
+			}
+			updatedAtMs := w.UpdatedAtMs
+			if updatedAtMs == nil || *updatedAtMs == 0 {
+				t := time.Now().UnixMilli()
+				updatedAtMs = &t
+			}
+			pageRows = append(pageRows, store.StatPageRow{
+				UserID:      uid,
+				BookHash:    w.BookHash,
+				Page:        w.Page,
+				StartTime:   w.StartTime,
+				Duration:    w.Duration,
+				TotalPages:  w.TotalPages,
+				UpdatedAtMs: updatedAtMs,
+				DeletedAt:   w.DeletedAt,
+			})
 		}
-		if err := h.ms.UpsertStatPages(ctx, payload.StatPages); err != nil {
-			writeError(w, err)
-			return
+		if len(pageRows) > 0 {
+			if err := h.ms.UpsertStatPages(ctx, pageRows); err != nil {
+				writeError(w, err)
+				return
+			}
 		}
 	}
 	writeJSON(w, map[string]string{})

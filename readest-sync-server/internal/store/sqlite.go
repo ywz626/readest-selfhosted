@@ -130,10 +130,14 @@ func (s *SqliteStore) PullBooks(ctx context.Context, userID, sinceISO string, li
 func (s *SqliteStore) UpsertNote(ctx context.Context, userID string, data []byte) error {
 	var noteID string
 	var updatedAt *int64
+	var deletedAt *int64
 	if err := jsonUnmarshalField(data, "id", &noteID); err != nil {
 		return err
 	}
 	if err := jsonUnmarshalField(data, "updated_at", &updatedAt); err != nil {
+		return err
+	}
+	if err := jsonUnmarshalField(data, "deleted_at", &deletedAt); err != nil {
 		return err
 	}
 	// last-writer-wins by updated_at
@@ -156,7 +160,7 @@ func (s *SqliteStore) UpsertNote(ctx context.Context, userID string, data []byte
 		INSERT INTO notes (user_id,note_id,updated_at,deleted_at,data)
 		VALUES (?,?,?,?,?)
 		ON CONFLICT(user_id,note_id) DO UPDATE SET updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, data=excluded.data`,
-		userID, noteID, updatedAt, nil, string(data))
+		userID, noteID, updatedAt, deletedAt, string(data))
 	return err
 }
 
@@ -179,9 +183,10 @@ func (s *SqliteStore) PullNotes(ctx context.Context, userID string, sinceMs int6
 }
 
 func (s *SqliteStore) UpsertConfig(ctx context.Context, userID string, data []byte) error {
+	// One config row per book, keyed by book_hash.
 	var configID string
 	var updatedAt *int64
-	if err := jsonUnmarshalField(data, "id", &configID); err != nil {
+	if err := jsonUnmarshalField(data, "book_hash", &configID); err != nil {
 		return err
 	}
 	if err := jsonUnmarshalField(data, "updated_at", &updatedAt); err != nil {

@@ -175,7 +175,13 @@ export const getUserID = async (): Promise<string | null> => {
   }
   if (isWebAppPlatform()) {
     const user = localStorage.getItem('user') ?? '{}';
-    return JSON.parse(user).id ?? null;
+    try {
+      return JSON.parse(user)?.id ?? null;
+    } catch {
+      // A corrupted 'user' payload (e.g. stored as "[object Object]") must
+      // not crash startup; treat it as signed-out.
+      return null;
+    }
   }
   const { data } = await supabase!.auth.getSession();
   return data?.session?.user?.id ?? null;

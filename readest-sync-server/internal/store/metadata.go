@@ -29,15 +29,7 @@ type BookRow struct {
 	UpdatedAt *int64  // epoch ms
 	DeletedAt *int64
 	SyncedAt  string  // ISO
-	Data      []byte  // JSON of full BookRecord
-}
-
-type NoteRow struct {
-	UserID    string
-	NoteID    string
-	UpdatedAt *int64
-	DeletedAt *int64
-	Data      []byte
+	Data      []byte  // DB-shaped BookRecord JSON (see sync/transform.go)
 }
 
 type ReplicaRow struct {
@@ -53,30 +45,30 @@ type ReplicaRow struct {
 }
 
 type StatBookRow struct {
-	UserID     string
-	BookHash   string
-	Title      string
-	Authors    string
-	UpdatedAtMs *int64
-	DeletedAt  *int64
+	UserID      string  `json:"user_id"`
+	BookHash    string  `json:"book_hash"`
+	Title       string  `json:"title"`
+	Authors     string  `json:"authors"`
+	UpdatedAtMs *int64  `json:"updated_at_ms"`
+	DeletedAt   *int64  `json:"deleted_at"`
 }
 
 type StatPageRow struct {
-	UserID    string
-	BookHash  string
-	Page      int
-	StartTime int64
-	Duration  int64
-	TotalPages int
-	UpdatedAtMs *int64
-	DeletedAt  *int64
+	UserID      string `json:"user_id"`
+	BookHash    string `json:"book_hash"`
+	Page        int    `json:"page"`
+	StartTime   int64  `json:"start_time"`
+	Duration    int64  `json:"duration"`
+	TotalPages  int64  `json:"total_pages"`
+	UpdatedAtMs *int64 `json:"updated_at_ms"`
+	DeletedAt   *int64 `json:"deleted_at"`
 }
 
 type ReplicaKeyRow struct {
-	SaltID    string
-	Alg       string
-	Salt      string
-	CreatedAt string
+	SaltID    string `json:"saltId"`
+	Alg       string `json:"alg"`
+	Salt      string `json:"salt"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type ReplicaCursor struct {

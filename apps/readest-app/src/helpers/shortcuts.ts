@@ -356,7 +356,13 @@ export const getShortcutsForDisplay = (isMac: boolean): ShortcutDisplaySection[]
 // Load shortcuts from localStorage or fallback to defaults
 export const loadShortcuts = (): ShortcutConfig => {
   if (typeof localStorage === 'undefined') return DEFAULT_SHORTCUTS;
-  const customShortcuts = JSON.parse(localStorage.getItem('customShortcuts') || '{}');
+  let customShortcuts: Partial<ShortcutConfig> = {};
+  try {
+    customShortcuts = JSON.parse(localStorage.getItem('customShortcuts') || '{}');
+  } catch {
+    // Corrupted shortcut payload must not prevent the app from booting.
+    customShortcuts = {};
+  }
   const result = { ...DEFAULT_SHORTCUTS };
   for (const [key, value] of Object.entries(customShortcuts)) {
     const shortcutKey = key as keyof ShortcutConfig;

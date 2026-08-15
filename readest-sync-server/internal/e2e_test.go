@@ -79,7 +79,7 @@ func TestE2EFlow(t *testing.T) {
 	}
 
 	// 2. push a book
-	push := authReq("POST", "/api/sync", []byte(`{"books":[{"id":"1","book_hash":"h1","user_id":"owner","updated_at":1000}]}`))
+	push := authReq("POST", "/api/sync", []byte(`{"books":[{"hash":"h1","title":"Test","metadata":{"author":"A"},"updatedAt":1000}]}`))
 	if push.Code != 200 {
 		t.Fatalf("push %d", push.Code)
 	}

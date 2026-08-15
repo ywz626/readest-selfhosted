@@ -849,7 +849,11 @@ export const getThemeCode = () => {
       localStorage.getItem('ambientIsDarkMode'),
       systemIsDarkMode,
     );
-    customThemes = JSON.parse(localStorage.getItem('customThemes') || '[]');
+    try {
+      customThemes = JSON.parse(localStorage.getItem('customThemes') || '[]');
+    } catch {
+      customThemes = [];
+    }
   }
   const isDarkMode =
     themeMode === 'dark' ||
