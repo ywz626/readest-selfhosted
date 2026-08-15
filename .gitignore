@@ -54,3 +54,11 @@ result*
 .claude/worktrees
 .claude/settings.local.json
 
+# ide
+.codebuddy/
+.idea/
+
+# vitest config build artifacts
+*.timestamp-*.mjs
+vitest.config.*.timestamp-*.mjs
+

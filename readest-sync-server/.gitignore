@@ -1,0 +1,12 @@
+data/
+*.db
+*.db-journal
+*.db-wal
+.env
+
+# 构建产物与运行时日志
+/readest-sync
+readest-sync.exe
+server.log
+server.err
+*.log

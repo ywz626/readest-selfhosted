@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { User, AuthError } from '@supabase/supabase-js';
+import type { SelfhostedUser } from '@/services/selfhostedAuth';
 
 // Mock supabase before importing the module under test
 const mockSetSession = vi.fn();
@@ -12,6 +13,8 @@ vi.mock('@/utils/supabase', () => ({
       getUser: () => mockGetUser(),
     },
   },
+  // These tests exercise the official Supabase OAuth path, not self-hosted.
+  SELFHOSTED: false,
 }));
 
 import { handleAuthCallback, parseOAuthCallbackUrl } from '@/helpers/auth';
@@ -65,7 +68,9 @@ describe('parseOAuthCallbackUrl', () => {
 });
 
 describe('handleAuthCallback', () => {
-  let mockLogin: ReturnType<typeof vi.fn<(accessToken: string, user: User) => void>>;
+  let mockLogin: ReturnType<
+    typeof vi.fn<(accessToken: string, user: User | SelfhostedUser) => void>
+  >;
   let mockNavigate: ReturnType<typeof vi.fn<(path: string) => void>>;
 
   const fakeUser: User = {
@@ -77,7 +82,7 @@ describe('handleAuthCallback', () => {
   } as User;
 
   beforeEach(() => {
-    mockLogin = vi.fn<(accessToken: string, user: User) => void>();
+    mockLogin = vi.fn<(accessToken: string, user: User | SelfhostedUser) => void>();
     mockNavigate = vi.fn<(path: string) => void>();
     mockSetSession.mockReset();
     mockGetUser.mockReset();

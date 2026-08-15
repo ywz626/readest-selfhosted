@@ -1,0 +1,44 @@
+services:
+  app:
+    build: .
+    env_file: .env            # 读取用户 .env，注入所有变量
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data      # 持久化 sqlite + 本地文件
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - minio
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]    # 仅 --profile postgres 时启动
+    environment:
+      POSTGRES_USER: readest
+      POSTGRES_PASSWORD: readest
+      POSTGRES_DB: readest
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readest"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["minio"]       # 仅 --profile minio 时启动
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+volumes:
+  pgdata:
+  miniodata:

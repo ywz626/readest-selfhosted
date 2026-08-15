@@ -227,6 +227,12 @@ export default function AuthPage() {
     }
   };
 
+  const handleSelfhostedLogin = (...args: Parameters<typeof login>) => {
+    login(...args);
+    const redirectTo = new URLSearchParams(window.location.search).get('redirect');
+    router.push(redirectTo && redirectTo.startsWith('/') ? redirectTo : '/library');
+  };
+
   const handleGoBack = () => {
     // Keep login false to avoid infinite loop to redirect to the login page
     settings.keepLogin = false;
@@ -260,6 +266,7 @@ export default function AuthPage() {
   }, []);
 
   useEffect(() => {
+    if (!supabase) return; // Self-hosted mode: no Supabase session to observe
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.access_token && session.user) {
         login(session.access_token, session.user);
@@ -341,6 +348,7 @@ export default function AuthPage() {
             magicLink={true}
             redirectTo={getTauriRedirectTo(false)}
             onProviderSignIn={tauriProviderSignIn}
+            onSelfhostedLogin={handleSelfhostedLogin}
           />
         </div>
       </div>
@@ -359,6 +367,7 @@ export default function AuthPage() {
         magicLink={true}
         redirectTo={getWebRedirectTo()}
         onProviderSignIn={webProviderSignIn}
+        onSelfhostedLogin={handleSelfhostedLogin}
       />
     </div>
   );

@@ -29,6 +29,12 @@ export default function UpdateEmailPage() {
     setMessage('');
     setError('');
 
+    if (!supabase) {
+      setError(_('No backend connected'));
+      setLoading(false);
+      return;
+    }
+
     try {
       const { error: updateError } = await supabase.auth.updateUser({
         email: email,

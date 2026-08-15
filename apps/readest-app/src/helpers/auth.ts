@@ -1,10 +1,11 @@
 import { User } from '@supabase/supabase-js';
-import { supabase } from '@/utils/supabase';
+import { supabase, SELFHOSTED } from '@/utils/supabase';
+import { jwtToUser, SelfhostedUser } from '@/services/selfhostedAuth';
 
 interface UseAuthCallbackOptions {
   accessToken?: string | null;
   refreshToken?: string | null;
-  login: (accessToken: string, user: User) => void;
+  login: (accessToken: string, user: User | SelfhostedUser) => void;
   navigate: (path: string) => void;
   type?: string | null;
   next?: string;
@@ -60,7 +61,22 @@ export function handleAuthCallback({
       return;
     }
 
-    const { error: err } = await supabase.auth.setSession({
+    // Self-hosted mode: the token is a JWT issued by the sync server. There is
+    // no Supabase session to set; derive the user from the JWT `sub` claim and
+    // log in directly. OAuth flows are not used in self-hosted mode.
+    if (SELFHOSTED) {
+      const user = jwtToUser(accessToken);
+      if (!user) {
+        console.error('Error deriving user from self-hosted token');
+        navigate('/auth/error');
+        return;
+      }
+      login(accessToken, user);
+      navigate(next);
+      return;
+    }
+
+    const { error: err } = await supabase!.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
@@ -73,7 +89,7 @@ export function handleAuthCallback({
 
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await supabase!.auth.getUser();
     if (user) {
       login(accessToken, user);
       if (type === 'recovery') {

@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useTranslation } from '@/hooks/useTranslation';
+import { SELFHOSTED } from '@/utils/supabase';
+import { selfhostedLogin, jwtToUser, saveLoginCode } from '@/services/selfhostedAuth';
+import type { SelfhostedUser } from '@/services/selfhostedAuth';
 
 type AuthView = 'sign_in' | 'sign_up' | 'magic_link' | 'forgotten_password';
 
 interface EmailPasswordAuthProps {
-  supabaseClient: SupabaseClient;
+  supabaseClient: SupabaseClient | null;
   redirectTo?: string;
   magicLink?: boolean;
+  // Self-hosted mode: called with the JWT issued by the sync server.
+  onSelfhostedLogin?: (accessToken: string, user: SelfhostedUser) => void;
 }
 
 const FORM_IDS: Record<AuthView, string> = {
@@ -24,6 +29,7 @@ export default function EmailPasswordAuth({
   supabaseClient,
   redirectTo,
   magicLink = false,
+  onSelfhostedLogin,
 }: EmailPasswordAuthProps) {
   const _ = useTranslation();
   const [view, setView] = useState<AuthView>('sign_in');
@@ -84,12 +90,49 @@ export default function EmailPasswordAuth({
     // Read credentials from the form's DOM state: Android/iOS password
     // managers fill WebView inputs without events React state can track.
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get('email') || '').trim();
+    // In self-hosted mode the shared login code is the only credential and is
+    // entered into the password field; the email field is hidden.
     const password = String(formData.get('password') || '');
+    const email = SELFHOSTED ? '' : String(formData.get('email') || '').trim();
     setError('');
     setMessage('');
     setLoading(true);
     try {
+      // Self-hosted mode: a single shared code is used instead of email/password.
+      if (SELFHOSTED) {
+        try {
+          const { access_token } = await selfhostedLogin(password);
+          const user = jwtToUser(access_token);
+          if (!user) throw new Error('invalid token');
+          // Persist the code so an expired JWT can be refreshed without
+          // re-prompting (mirrors Supabase's persisted refresh_token).
+          saveLoginCode(password);
+          // The caller (`onSelfhostedLogin`) is responsible for logging in AND
+          // navigating away (via SPA router.push) so the behavior matches the
+          // OAuth path on every platform (Tauri / iOS / Android / Web) without
+          // triggering a full WebView reload.
+          onSelfhostedLogin?.(access_token, user);
+        } catch (e) {
+          const err = e as Error & { status?: number; lockedUntil?: number };
+          if (err.status === 429) {
+            if (err.lockedUntil) {
+              const mins = Math.max(1, Math.ceil((err.lockedUntil - Date.now()) / 60000));
+              setError(
+                _(
+                  'Too many failed attempts. This device is locked. Try again in {{minutes}} min.',
+                  { minutes: mins },
+                ),
+              );
+            } else {
+              setError(_('Too many failed attempts. This device is temporarily locked.'));
+            }
+          } else {
+            setError(_('Invalid login code'));
+          }
+        }
+        return;
+      }
+      if (!supabaseClient) throw new Error('No backend connected');
       if (view === 'sign_in') {
         const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) setError(error.message);
@@ -124,7 +167,7 @@ export default function EmailPasswordAuth({
   const buttonLabel = {
     sign_in: loading ? _('Signing in...') : _('Sign in'),
     sign_up: loading ? _('Signing up...') : _('Sign up'),
-    magic_link: loading ? _('Signing in ...') : _('Sign in'),
+    magic_link: loading ? _('Signing in...') : _('Sign in'),
     forgotten_password: loading
       ? _('Sending reset instructions ...')
       : _('Send reset password instructions'),
@@ -138,37 +181,45 @@ export default function EmailPasswordAuth({
       onSubmit={handleSubmit}
       className='w-full space-y-4'
     >
-      <div className='form-control'>
-        <label className='label' htmlFor='email'>
-          <span className='label-text'>{_('Email address')}</span>
-        </label>
-        <input
-          id='email'
-          name='email'
-          type='email'
-          required
-          defaultValue={defaultEmail}
-          placeholder={_('Your email address')}
-          autoComplete={hasPassword ? 'username' : 'email'}
-          className='input input-bordered eink-bordered w-full rounded-lg placeholder:text-sm'
-          disabled={loading}
-          onFocus={keepAboveKeyboard}
-        />
-      </div>
+      {!SELFHOSTED && (
+        <div className='form-control'>
+          <label className='label' htmlFor='email'>
+            <span className='label-text'>{_('Email address')}</span>
+          </label>
+          <input
+            id='email'
+            name='email'
+            type='email'
+            required
+            defaultValue={defaultEmail}
+            placeholder={_('Your email address')}
+            autoComplete={hasPassword ? 'username' : 'email'}
+            className='input input-bordered eink-bordered w-full rounded-lg placeholder:text-sm'
+            disabled={loading}
+            onFocus={keepAboveKeyboard}
+          />
+        </div>
+      )}
       {hasPassword && (
         <div className='form-control'>
           <label className='label' htmlFor='password'>
             <span className='label-text'>
-              {view === 'sign_in' ? _('Your Password') : _('Create a Password')}
+              {SELFHOSTED
+                ? _('Login code')
+                : view === 'sign_in'
+                  ? _('Your Password')
+                  : _('Create a Password')}
             </span>
           </label>
           <input
             id='password'
             name='password'
-            type='password'
+            type={SELFHOSTED ? 'text' : 'password'}
             required
-            placeholder={_('Your password')}
-            autoComplete={view === 'sign_in' ? 'current-password' : 'new-password'}
+            placeholder={SELFHOSTED ? _('Your login code') : _('Your password')}
+            autoComplete={
+              SELFHOSTED ? 'off' : view === 'sign_in' ? 'current-password' : 'new-password'
+            }
             className='input input-bordered eink-bordered w-full rounded-lg placeholder:text-sm'
             disabled={loading}
             onFocus={keepAboveKeyboard}
@@ -190,7 +241,7 @@ export default function EmailPasswordAuth({
         </div>
       )}
       <div className='flex flex-col items-center gap-2.5 pt-1 text-sm'>
-        {view === 'sign_in' && (
+        {!SELFHOSTED && view === 'sign_in' && (
           <>
             {magicLink && (
               <button type='button' className={LINK_CLASS} onClick={switchView('magic_link')}>
@@ -205,7 +256,7 @@ export default function EmailPasswordAuth({
             </button>
           </>
         )}
-        {view !== 'sign_in' && (
+        {!SELFHOSTED && view !== 'sign_in' && (
           <button type='button' className={LINK_CLASS} onClick={switchView('sign_in')}>
             {_('Already have an account? Sign in')}
           </button>

@@ -1,0 +1,7 @@
+data/
+.git/
+*.db
+*.db-*
+.env
+readest-sync
+readest-sync.exe

@@ -1,0 +1,22 @@
+Readest 自建云同步服务端 (readest-sync-server)
+独立实现，与 Readest 原作者无关
+Copyright (C) 2026 本项目贡献者
+
+本软件为 GNU Affero General Public License Version 3 (AGPL-3.0) 下的自由软件。
+
+独立性声明
+----------
+本项目（readest-sync-server）是一个**独立编写的服务端实现**，仅兼容 Readest
+客户端既有的同步 API 契约（HTTP 端点、JWT 结构、数据格式）。本项目：
+
+  - 不包含 Readest 客户端或 Readest 服务端（readest.com 官方服务器）的任何
+    源代码、二进制或专有资源；
+  - 与 Readest 的作者、维护者及所属组织无任何隶属、授权或合作关系；
+  - 未使用 Readest 名称、商标或品牌用于背书，仅以描述性方式说明其兼容的
+    客户端。
+
+Readest 客户端本身以 AGPL-3.0 发布。若你修改 Readest 客户端并将其作为
+网络服务对外提供（含本服务端的「自建模式」客户端改动），你须按照 AGPL-3.0
+第 13 条向用户提供相应的源代码。
+
+本软件按 "AS IS" 提供，不提供任何明示或暗示的担保，详见 LICENSE 文件。
