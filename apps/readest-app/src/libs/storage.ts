@@ -1,4 +1,4 @@
-import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
+import { getAPIBaseUrl, getBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
@@ -10,6 +10,13 @@ import {
   ProgressHandler,
   ProgressPayload,
 } from '@/utils/transfer';
+
+const toFullUrl = (url: string) => {
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = getBaseUrl().replace(/\/+$/, '');
+  if (url.startsWith('/')) return `${base}${url}`;
+  return `${base}/${url}`;
+};
 
 const API_ENDPOINTS = {
   upload: getAPIBaseUrl() + '/storage/upload',
@@ -67,7 +74,7 @@ export const uploadFile = async (
     if (isWebAppPlatform()) {
       await webUpload(file, uploadUrl, onProgress);
     } else {
-      await tauriUpload(uploadUrl, fileFullPath, 'PUT', onProgress);
+      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress);
     }
     return temp || media ? downloadUrl : undefined;
   } catch (error) {
@@ -111,7 +118,7 @@ export const uploadReplicaFile = async (
     if (isWebAppPlatform()) {
       await webUpload(file, uploadUrl, onProgress);
     } else {
-      await tauriUpload(uploadUrl, fileFullPath, 'PUT', onProgress);
+      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress);
     }
   } catch (error) {
     console.error('Replica file upload failed:', error);
@@ -205,7 +212,7 @@ export const downloadFile = async ({
       return responseHeaders;
     } else {
       return await tauriDownload(
-        downloadUrl,
+        toFullUrl(downloadUrl),
         dst,
         onProgress,
         headers,
