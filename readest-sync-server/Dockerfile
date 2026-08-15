@@ -3,6 +3,8 @@ FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
 COPY go.mod go.sum ./
+RUN go env -w GOPROXY=https://goproxy.cn,direct \
+ && go env -w GOSUMDB=off
 RUN go mod download
 COPY . .
 # 关闭 CGO：modernc.org/sqlite 是纯 Go，无需 CGO；保证镜像可移植
