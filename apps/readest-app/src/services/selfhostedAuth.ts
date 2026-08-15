@@ -65,9 +65,33 @@ export function getDeviceId(): string {
  * Login against a self-hosted Readest sync server using a shared static code.
  * The server validates the code and returns a JWT (`plan: pro`, `sub: owner`).
  */
+export type SelfhostedLoginErrorReason =
+  | 'no-url' // 未配置服务端地址
+  | 'network' // 连不上服务端（DNS/连接被拒/超时/CORS）
+  | 'server' // 服务端 5xx 内部错误
+  | 'locked' // 429 设备被限流锁定
+  | 'invalid-code'; // 服务端明确拒绝：授权码错误
+
+export class SelfhostedLoginError extends Error {
+  reason: SelfhostedLoginErrorReason;
+  status?: number;
+  lockedUntil?: number;
+  constructor(
+    message: string,
+    reason: SelfhostedLoginErrorReason,
+    extra?: { status?: number; lockedUntil?: number },
+  ) {
+    super(message);
+    this.name = 'SelfhostedLoginError';
+    this.reason = reason;
+    this.status = extra?.status;
+    this.lockedUntil = extra?.lockedUntil;
+  }
+}
+
 export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResult> {
   if (!SELFHOSTED_BASE_URL) {
-    throw new Error('Self-hosted server URL is not configured');
+    throw new SelfhostedLoginError('Self-hosted server URL is not configured', 'no-url');
   }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const deviceId = getDeviceId();
@@ -75,15 +99,26 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
   // The sync server registers its API surface under /api (see main.go); the
   // other clients (sync/storage/translate) already use ${base}/api via
   // getAPIBaseUrl, so the login endpoint must live on the same prefix.
-  const res = await fetch(`${SELFHOSTED_BASE_URL}/api/auth`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ code }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${SELFHOSTED_BASE_URL}/api/auth`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ code }),
+    });
+  } catch {
+    // Network-level failure: DNS resolution, connection refused, timeout, or a
+    // CORS/pre-flight rejection all surface here as a rejected promise rather
+    // than a non-2xx response. Previously these were silently folded into
+    // "invalid code", making it impossible to tell a bad password from a dead
+    // server.
+    throw new SelfhostedLoginError(
+      `Cannot reach the sync server at ${SELFHOSTED_BASE_URL}`,
+      'network',
+    );
+  }
   if (!res.ok) {
-    const err = new Error('invalid code');
     const status = res.status;
-    (err as Error & { status?: number; lockedUntil?: number }).status = status;
     // 429 = device locked after too many failures; surface the retry delay.
     if (status === 429) {
       const raw = res.headers.get('Retry-After') ?? '';
@@ -94,9 +129,21 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
           : !Number.isNaN(Date.parse(raw))
             ? Date.parse(raw)
             : undefined;
-      (err as Error & { status?: number; lockedUntil?: number }).lockedUntil = lockedUntil;
+      throw new SelfhostedLoginError('Too many failed attempts', 'locked', {
+        status,
+        lockedUntil,
+      });
     }
-    throw err;
+    // 5xx = server-side error, not a credential problem.
+    if (status >= 500) {
+      throw new SelfhostedLoginError(
+        `Sync server returned an internal error (${status})`,
+        'server',
+        { status },
+      );
+    }
+    // Any other non-2xx (400/401/etc.) means the server rejected the code.
+    throw new SelfhostedLoginError('invalid code', 'invalid-code', { status });
   }
   return (await res.json()) as SelfhostedLoginResult;
 }

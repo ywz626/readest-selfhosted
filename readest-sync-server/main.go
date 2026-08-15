@@ -14,6 +14,26 @@ import (
 	"readestsync/internal/proxy"
 )
 
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Non-browser clients (curl, Tauri without CORS) don't send Origin.
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-Id, Accept, Origin")
+		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	cfg := LoadConfig()
 
@@ -48,6 +68,11 @@ func main() {
 	storageH := storage.NewStorageHandler(ms, fs, cfg.QuotaBytes)
 
 	r := chi.NewRouter()
+
+	// CORS: self-hosted servers may be accessed from any origin (desktop app,
+	// mobile WebView, browser). Handle preflight OPTIONS and expose the headers
+	// needed by the client (Authorization, Content-Type, X-Device-Id).
+	r.Use(corsMiddleware)
 
 	// Public: login (with brute-force / device-lock protection)
 	r.Post("/api/auth", func(w http.ResponseWriter, r *http.Request) {

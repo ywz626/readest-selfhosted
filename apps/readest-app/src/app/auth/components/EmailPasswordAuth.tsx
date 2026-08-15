@@ -113,8 +113,32 @@ export default function EmailPasswordAuth({
           // triggering a full WebView reload.
           onSelfhostedLogin?.(access_token, user);
         } catch (e) {
-          const err = e as Error & { status?: number; lockedUntil?: number };
-          if (err.status === 429) {
+          const err = e as Error & {
+            status?: number;
+            lockedUntil?: number;
+            reason?: string;
+          };
+          if (err.reason === 'network') {
+            // 连不上服务端：URL 没配对 / 服务端没启动 / 防火墙 / CORS
+            setError(
+              _(
+                'Cannot connect to the sync server. Check that the server is running and the server address is correctly configured in the app.',
+              ),
+            );
+          } else if (err.reason === 'no-url') {
+            setError(
+              _(
+                'No sync server address is configured. Please set NEXT_PUBLIC_API_BASE_URL and rebuild the app.',
+              ),
+            );
+          } else if (err.reason === 'server') {
+            setError(
+              _(
+                'The sync server encountered an internal error. Please check the server logs and try again later.',
+              ),
+            );
+          } else if (err.reason === 'locked' || err.status === 429) {
+            // 兜底：旧版本错误可能没有 reason 字段，仍按 429 处理
             if (err.lockedUntil) {
               const mins = Math.max(1, Math.ceil((err.lockedUntil - Date.now()) / 60000));
               setError(

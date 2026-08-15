@@ -16,6 +16,7 @@ WORKDIR /app
 RUN adduser -D -u 10001 appuser
 COPY --from=build /out/readest-sync /app/readest-sync
 # 运行时数据卷挂载点（sqlite 文件 + 本地文件存储）
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
 VOLUME ["/app/data"]
 ENV LISTEN_ADDR=:8080
 EXPOSE 8080

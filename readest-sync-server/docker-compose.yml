@@ -5,7 +5,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/app/data      # 持久化 sqlite + 本地文件
+      - appdata:/app/data     # 持久化 sqlite + 本地文件（命名卷，自动匹配容器用户权限）
     restart: unless-stopped
 
   postgres:
@@ -37,5 +37,6 @@ services:
       - "9001:9001"
 
 volumes:
+  appdata:
   pgdata:
   miniodata:
