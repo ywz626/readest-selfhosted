@@ -1,0 +1,5 @@
+# cargo vendor 元数据/缓存标记，无需入库
+.cargo-ok
+.cargo_vcs_info.json
+Cargo.lock
+Cargo.toml.orig
