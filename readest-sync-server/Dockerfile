@@ -1,7 +1,10 @@
 # 构建阶段
 FROM golang:1.25-alpine AS build
 WORKDIR /src
-RUN apk add --no-cache git
+# 使用国内镜像源加速 apk 安装（默认阿里云，可用 --build-arg APK_MIRROR=... 覆盖）
+ARG APK_MIRROR=mirrors.aliyun.com
+RUN sed -i "s|dl-cdn.alpinelinux.org|${APK_MIRROR}|g" /etc/apk/repositories \
+ && apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go env -w GOPROXY=https://goproxy.cn,direct \
  && go env -w GOSUMDB=off
