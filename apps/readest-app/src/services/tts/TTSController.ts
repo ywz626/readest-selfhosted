@@ -11,7 +11,8 @@ import {
   TTSMark,
   TTSVoice,
 } from './types';
-import { createRejectFilter } from '@/utils/node';
+import { createTTSNodeFilter } from './nodeFilter';
+import { expandRangeOverRuby } from '@/utils/ruby';
 import { WebSpeechClient } from './WebSpeechClient';
 import { NativeTTSClient } from './NativeTTSClient';
 import { EdgeTTSClient } from './EdgeTTSClient';
@@ -83,31 +84,6 @@ export interface TTSViewBindings {
   preprocessCallback?: (ssml: string) => Promise<string>;
   onSectionChange?: (sectionIndex: number) => Promise<void>;
 }
-
-// Node filter shared by the live TTS instance and the timeline enumeration —
-// the two MUST segment identically or timeline sentences drift from marks.
-const createTTSNodeFilter = () =>
-  createRejectFilter({
-    tags: ['rt', 'canvas', 'br'],
-    // Footnotes/endnotes are hidden in the rendered page (see the
-    // `.epubtype-footnote`/`aside[epub|type]` rules in getPageLayoutStyles);
-    // skip them in TTS too, including for background sections whose
-    // documents are loaded without those styles.
-    classes: [
-      'annotationLayer',
-      'epubtype-footnote',
-      'duokan-footnote-content',
-      'duokan-footnote-item',
-    ],
-    attributeTokens: [
-      {
-        tag: 'aside',
-        attribute: 'epub:type',
-        tokens: ['footnote', 'endnote', 'note', 'rearnote'],
-      },
-    ],
-    contents: [{ tag: 'a', content: /^[\[\(]?[\*\d]+[\)\]]?$/ }],
-  });
 
 // Silence inserted between paragraphs when auto-advancing during continuous
 // playback. Unlike the Edge-only inter-sentence gap, this applies to every
@@ -263,17 +239,25 @@ export class TTSController extends EventTarget {
     });
   }
 
-  // A direct-speak engine (Android system TTS) renders its audio in the OS, not
-  // the WebView, and advances sentence-to-sentence from JS timers here. With the
-  // screen locked the hidden WebView would be throttled/frozen and that loop
-  // stalls — so keep an inaudible tone playing to hold the page "audible" and
-  // its timers alive, exactly the exemption Edge/WebAudio playback earns for
-  // free. Android-only (iOS drives playout through its own native audio
-  // session); a no-op for buffered engines that already emit audible output.
-  // See #4408.
-  #syncNativeAudioKeepAlive() {
+  // Keep the hidden WebView schedulable, in the two cases where it would
+  // otherwise fall silent and get frozen by Chromium. Android-only (iOS drives
+  // playout through its own native audio session).
+  //
+  //   - Playing a direct-speak engine (Android system TTS): its audio renders
+  //     in the OS, not the WebView, and the sentence-to-sentence advance runs
+  //     on JS timers here, so the loop stalls once the page is throttled. See
+  //     #4408. Buffered engines earn the exemption for free while speaking.
+  //
+  //   - Paused, whatever the engine: no engine emits audio while paused, and
+  //     the media-session play/pause/next handlers live in this page. Let it
+  //     freeze and Play from a Bluetooth headset only flips the notification —
+  //     the native foreground service answers, the reader never wakes to speak,
+  //     and the in-app player drifts out of sync until the app is foregrounded.
+  //     See #5561.
+  #syncAudioKeepAlive() {
+    const directSpeak = this.ttsClient.getCapabilities().mediaClock === false;
     const needsKeepAlive =
-      !!this.appService?.isAndroidApp && this.ttsClient.getCapabilities().mediaClock === false;
+      !!this.appService?.isAndroidApp && (directSpeak || this.state.includes('paused'));
     if (needsKeepAlive) {
       startAudioKeepAlive();
     } else {
@@ -489,7 +473,7 @@ export class TTSController extends EventTarget {
         return;
       }
       try {
-        const cfi = this.view.getCFI(index, range);
+        const cfi = this.view.getCFI(index, expandRangeOverRuby(range));
         const visibleRange = this.view.resolveCFI(cfi).anchor(doc);
         // A stale range (re-applied after a relocate that changed the section
         // content) resolves to nothing in the current doc; overlayer.add would
@@ -1014,8 +998,8 @@ export class TTSController extends EventTarget {
   // left to pause on.
   async #stopAtChapterBoundary() {
     if (await this.#initTTSForNextSection()) {
-      stopAudioKeepAlive();
       this.state = 'forward-paused';
+      this.#syncAudioKeepAlive();
     } else {
       this.#terminate('ended');
       await this.stop();
@@ -1106,7 +1090,7 @@ export class TTSController extends EventTarget {
       try {
         console.log('[TTS] speak');
         this.state = 'playing';
-        this.#syncNativeAudioKeepAlive();
+        this.#syncAudioKeepAlive();
 
         signal.addEventListener('abort', () => {
           resolve();
@@ -1269,7 +1253,7 @@ export class TTSController extends EventTarget {
 
   async pause() {
     this.state = 'paused';
-    stopAudioKeepAlive();
+    this.#syncAudioKeepAlive();
     if (!(await this.ttsClient.pause().catch((e) => this.error(e)))) {
       await this.stop();
       this.state = 'stop-paused';
@@ -1357,7 +1341,9 @@ export class TTSController extends EventTarget {
   }
 
   async setRate(rate: number) {
-    this.state = 'setrate-paused';
+    // Live rate changes (Edge/MO native AVPlayer) must not flip the state
+    // machine to paused — audio keeps rolling and the UI would desync.
+    if (this.state !== 'playing') this.state = 'setrate-paused';
     this.ttsRate = rate;
     this.#sectionTimeline?.setRate(rate);
     await this.ttsClient.setRate(this.ttsRate);
@@ -1389,6 +1375,10 @@ export class TTSController extends EventTarget {
     // engine: the current section's TTS instance has to be rebuilt.
     const wantsNarration = voiceId === MEDIA_OVERLAY_VOICE_ID && this.narrationAvailable;
     if (wantsNarration !== this.narrationActive) {
+      // Edge/native share the iOS playout AVPlayer with Media Overlay. Leaving
+      // narration (or returning after Edge aborted it) must drop the cached
+      // clock, or speak() resumes a dead session and the reader hears silence.
+      this.ttsMediaOverlayClient.invalidatePlayback();
       this.#useNarration = wantsNarration;
       if (wantsNarration) await this.ttsMediaOverlayClient.init();
       this.ttsClient = wantsNarration ? this.ttsMediaOverlayClient : this.ttsWebClient;

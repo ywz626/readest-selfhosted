@@ -61,8 +61,16 @@ struct PlayoutEnqueueArgs: Decodable {
 
 struct PlayoutControlArgs: Decodable {
   // 'start-session' | 'end-session' | 'abort' | 'pause' | 'resume' | 'set-rate'
+  // | 'load' | 'seek'
+  //
+  // 'load' plays a long continuous file (Media Overlay narration) from `path`,
+  // optionally seeking to `positionMs`. Unlike enqueue, it does not trim Edge
+  // silence and does not delete the file — JS owns the staged temp path.
+  // 'seek' moves the playhead of the current item to `positionMs`.
   let action: String
   let rate: Double?
+  let path: String?
+  let positionMs: Double?
 }
 
 struct PlayoutEnqueueResponse: Encodable {
@@ -449,8 +457,10 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
       }
 
       // Artwork usually arrives as a base64 data URI; decode off the main thread
-      // and apply it once ready so it does not block command handling.
-      if let artwork = artwork {
+      // and apply it once ready so it does not block command handling. Empty
+      // strings must not clear existing artwork (JS used to send artwork: ""
+      // on every speak-mark, which raced a failed decode against the cover).
+      if let artwork = artwork, !artwork.isEmpty {
         DispatchQueue.global(qos: .userInitiated).async {
           guard let image = self.loadImage(from: artwork) else { return }
           let mpArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
@@ -955,6 +965,9 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
     // Where speech ends; playback stops there instead of at the file end.
     // 0 means "play the whole file" (bounds could not be determined).
     let endSec: Double
+    // Edge writes its own temp MP3s and must delete them; Media Overlay stages
+    // files from JS and retains them across seeks / paragraph handovers.
+    let owned: Bool
   }
 
   // Edge bakes silence into every utterance MP3 - measured at ~0.18s leading
@@ -982,6 +995,10 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
   private var playoutPendingAdvance = false
   private var playoutGapTimer: Timer?
   private var playoutItemEndObserver: NSObjectProtocol?
+  // Path of the continuous file currently loaded via "load" (Media Overlay).
+  private var playoutLoadedPath: String?
+  private var playoutItemFailedObserver: NSObjectProtocol?
+  private var playoutItemStatusObserver: NSKeyValueObservation?
 
   @objc public func playout_control(_ invoke: Invoke) {
     do {
@@ -1023,6 +1040,18 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
           if self.playoutPlaying, self.playoutPlayer?.currentItem != nil {
             self.playoutPlayer?.rate = self.playoutRate
           }
+          invoke.resolve(PlayoutControlResponse(session: nil))
+        case "load":
+          guard let path = args.path, !path.isEmpty else {
+            invoke.reject("playout load requires path")
+            return
+          }
+          let startMs = args.positionMs ?? 0
+          self.loadContinuousFile(path: path, startMs: startMs)
+          invoke.resolve(PlayoutControlResponse(session: self.playoutSession))
+        case "seek":
+          let positionMs = args.positionMs ?? 0
+          self.seekPlayout(toMs: positionMs)
           invoke.resolve(PlayoutControlResponse(session: nil))
         default:
           invoke.reject("Unknown playout action: \(args.action)")
@@ -1070,7 +1099,7 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
             self.playoutQueue.append(
               PlayoutItem(
                 index: args.index, url: url, gapSec: (args.gapMs ?? 0) / 1000.0,
-                endSec: endSec))
+                endSec: endSec, owned: true))
             if self.playoutPlaying && self.playoutCurrentIndex == -1
               && self.playoutGapTimer == nil
             {
@@ -1083,6 +1112,107 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
     } catch {
       invoke.reject("Failed to parse playout enqueue: \(error.localizedDescription)")
     }
+  }
+
+  // Continuous long-file playout for Media Overlay. Reuses the Edge playout
+  // AVPlayer so Now Playing / session ownership stay in-process; skips silence
+  // trimming and never deletes the staged path (JS owns it).
+  private func loadContinuousFile(path: String, startMs: Double) {
+    // A prior Edge queue would fight continuous playback; clear it without
+    // tearing down the session id the JS side is bound to.
+    playoutGapTimer?.invalidate()
+    playoutGapTimer = nil
+    playoutPendingAdvance = false
+    for item in playoutQueue where item.owned {
+      try? FileManager.default.removeItem(at: item.url)
+    }
+    playoutQueue.removeAll()
+    playoutSessionEnded = false
+
+    // Same path already loaded: seek in place so paragraph handovers and
+    // discontinuity seeks don't rebuild the item (audible glitch). Playback
+    // stays under JS control (play/pause) — do not auto-resume here.
+    let alreadyLoaded =
+      playoutLoadedPath == path && playoutPlayer?.currentItem != nil && playoutCurrentIndex == 0
+    playoutLoadedPath = path
+    if alreadyLoaded {
+      seekPlayout(toMs: startMs)
+      return
+    }
+
+    if playoutPlayer == nil {
+      let player = AVPlayer()
+      player.allowsExternalPlayback = false
+      playoutPlayer = player
+    }
+    bindNowPlayingSession(to: playoutPlayer!)
+    let url = URL(fileURLWithPath: path)
+    let playerItem = AVPlayerItem(url: url)
+    playerItem.audioTimePitchAlgorithm = .timeDomain
+    if let observer = playoutItemEndObserver {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    clearContinuousObservers()
+    playoutItemEndObserver = NotificationCenter.default.addObserver(
+      forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main
+    ) { [weak self] _ in
+      self?.playoutContinuousEnded()
+    }
+    // A staged file that cannot be decoded (or has gone missing) never moves
+    // the clock, and JS has no other way to learn: without this its waitUntil
+    // sits on a dead item forever instead of surfacing a playback error.
+    playoutItemFailedObserver = NotificationCenter.default.addObserver(
+      forName: .AVPlayerItemFailedToPlayToEndTime, object: playerItem, queue: .main
+    ) { [weak self] _ in
+      self?.playoutContinuousFailed()
+    }
+    playoutItemStatusObserver = playerItem.observe(\.status, options: [.new]) {
+      [weak self] item, _ in
+      guard item.status == .failed else { return }
+      DispatchQueue.main.async { self?.playoutContinuousFailed() }
+    }
+    playoutCurrentIndex = 0
+    playoutPlayer?.replaceCurrentItem(with: playerItem)
+    let startSec = max(0, startMs / 1000.0)
+    if startSec > 0 {
+      let time = CMTime(seconds: startSec, preferredTimescale: 600)
+      playoutPlayer?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+    // Intentionally not auto-playing: Media Overlay JS calls resume after seek,
+    // matching HTMLAudioElement where load and play are separate steps.
+    emitPlayoutEvent("chunk-start", index: 0)
+  }
+
+  private func seekPlayout(toMs positionMs: Double) {
+    let seconds = max(0, positionMs / 1000.0)
+    let time = CMTime(seconds: seconds, preferredTimescale: 600)
+    playoutPlayer?.seek(
+      to: time, toleranceBefore: .zero, toleranceAfter: .zero)
+  }
+
+  private func playoutContinuousEnded() {
+    playoutCurrentIndex = -1
+    // File exhausted; JS's waitUntil maps this to the 'ended' outcome.
+    emitPlayoutEvent("ended", index: 0)
+  }
+
+  private func playoutContinuousFailed() {
+    guard playoutLoadedPath != nil else { return }
+    playoutCurrentIndex = -1
+    playoutPlayer?.pause()
+    emitPlayoutEvent("error", index: 0)
+  }
+
+  // The continuous item's failure observers. Torn down whenever the current
+  // item is replaced — including by an Edge advance, which brings its own end
+  // observer but must not inherit these.
+  private func clearContinuousObservers() {
+    if let observer = playoutItemFailedObserver {
+      NotificationCenter.default.removeObserver(observer)
+      playoutItemFailedObserver = nil
+    }
+    playoutItemStatusObserver?.invalidate()
+    playoutItemStatusObserver = nil
   }
 
   @objc public func playout_position(_ invoke: Invoke) {
@@ -1192,6 +1322,8 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
     if let observer = playoutItemEndObserver {
       NotificationCenter.default.removeObserver(observer)
     }
+    clearContinuousObservers()
+    playoutLoadedPath = nil
     playoutItemEndObserver = NotificationCenter.default.addObserver(
       forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main
     ) { [weak self] _ in
@@ -1205,7 +1337,9 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
   }
 
   private func playoutItemEnded(_ item: PlayoutItem) {
-    try? FileManager.default.removeItem(at: item.url)
+    if item.owned {
+      try? FileManager.default.removeItem(at: item.url)
+    }
     playoutCurrentIndex = -1
     // Inter-sentence gap runs on a native timer so it keeps ticking when the
     // webview's JS timers are throttled in the background.
@@ -1234,9 +1368,10 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
       NotificationCenter.default.removeObserver(observer)
       playoutItemEndObserver = nil
     }
+    clearContinuousObservers()
     playoutPlayer?.pause()
     playoutPlayer?.replaceCurrentItem(with: nil)
-    for item in playoutQueue {
+    for item in playoutQueue where item.owned {
       try? FileManager.default.removeItem(at: item.url)
     }
     playoutQueue.removeAll()
@@ -1244,6 +1379,7 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate {
     playoutSessionEnded = false
     playoutPendingAdvance = false
     playoutPlaying = false
+    playoutLoadedPath = nil
   }
 
   private func emitPlayoutEvent(_ type: String, index: Int? = nil) {

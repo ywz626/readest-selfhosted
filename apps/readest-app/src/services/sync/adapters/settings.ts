@@ -1,6 +1,7 @@
 import type { SystemSettings } from '@/types/settings';
 import type { ReplicaAdapter } from '@/services/sync/replicaRegistry';
 import type { FieldsObject, ReplicaRow } from '@/types/replica';
+import { serializeCustomHeaders, deserializeCustomHeaders } from '@/utils/customHeaders';
 import { unwrap } from './helpers';
 
 export const SETTINGS_KIND = 'settings';
@@ -59,10 +60,12 @@ export const SETTINGS_WHITELIST = [
   'kosync.username',
   'kosync.userkey',
   'kosync.password',
+  'kosync.customHeaders',
   'bookorbit.serverUrl',
   'bookorbit.username',
   'bookorbit.userkey',
   'bookorbit.password',
+  'bookorbit.customHeaders',
   'readwise.baseUrl',
   'readwise.accessToken',
   'hardcover.accessToken',
@@ -134,9 +137,11 @@ export const SETTINGS_ENCRYPTED_FIELDS = [
   'kosync.username',
   'kosync.userkey',
   'kosync.password',
+  'kosync.customHeaders',
   'bookorbit.username',
   'bookorbit.userkey',
   'bookorbit.password',
+  'bookorbit.customHeaders',
   'readwise.accessToken',
   'hardcover.accessToken',
   'webdav.username',
@@ -146,6 +151,16 @@ export const SETTINGS_ENCRYPTED_FIELDS = [
 ] as const;
 
 export type SettingsWhitelistKey = (typeof SETTINGS_WHITELIST)[number];
+
+/**
+ * `encryptPackedFields` / `decryptRowFields` only handle string-valued
+ * fields (`String(value)` on encrypt, a decrypted string back on
+ * decrypt) — every other entry in `SETTINGS_ENCRYPTED_FIELDS` is a plain
+ * string. These paths are object-valued, so pack/unpack serialize them
+ * to/from a JSON string at this boundary so the crypto middleware only
+ * ever sees a string.
+ */
+const OBJECT_VALUED_ENCRYPTED_PATHS = ['kosync.customHeaders', 'bookorbit.customHeaders'] as const;
 
 // In practice every path comes from the compile-time SETTINGS_WHITELIST so
 // these never appear, but readPath/writePath are exported helpers and the
@@ -205,6 +220,16 @@ export interface SettingsRemoteRecord {
   lastSeenCipher?: Record<string, string>;
 }
 
+/** Parse each object-valued encrypted path back from its JSON-string wire form, in place. */
+const deserializeObjectValuedPaths = (patch: Record<string, unknown>): void => {
+  for (const path of OBJECT_VALUED_ENCRYPTED_PATHS) {
+    const raw = readPath(patch, path);
+    if (typeof raw === 'string') {
+      writePath(patch, path, deserializeCustomHeaders(raw));
+    }
+  }
+};
+
 const unwrapSettingsFields = (fields: FieldsObject): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
   for (const path of SETTINGS_WHITELIST) {
@@ -225,6 +250,15 @@ export const settingsAdapter: ReplicaAdapter<SettingsRemoteRecord> = {
       const value = readPath(record.patch, path);
       if (value !== undefined) fields[path] = value;
     }
+    for (const path of OBJECT_VALUED_ENCRYPTED_PATHS) {
+      if (!(path in fields)) continue;
+      const serialized = serializeCustomHeaders(fields[path] as Record<string, string>);
+      if (serialized === null) {
+        delete fields[path];
+      } else {
+        fields[path] = serialized;
+      }
+    }
     return fields;
   },
 
@@ -234,6 +268,7 @@ export const settingsAdapter: ReplicaAdapter<SettingsRemoteRecord> = {
       const v = fields[path];
       if (v !== undefined) writePath(patch, path, v);
     }
+    deserializeObjectValuedPaths(patch);
     return { name: 'singleton', patch: patch as Partial<SystemSettings> };
   },
 
@@ -251,6 +286,7 @@ export const settingsAdapter: ReplicaAdapter<SettingsRemoteRecord> = {
     for (const [path, v] of Object.entries(flat)) {
       writePath(patch, path, v);
     }
+    deserializeObjectValuedPaths(patch);
     return { name: 'singleton', patch: patch as Partial<SystemSettings> };
   },
 

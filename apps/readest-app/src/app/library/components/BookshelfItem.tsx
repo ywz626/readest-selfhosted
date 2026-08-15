@@ -21,6 +21,8 @@ import {
   type BookContextMenuItemId,
 } from '@/app/library/utils/libraryUtils';
 import { md5Fingerprint } from '@/utils/md5';
+import { isTauriAppPlatform } from '@/services/environment';
+import { isLocalSendEnabled } from '@/services/localsend/devicePrefs';
 import BookItem from './BookItem';
 import GroupItem from './GroupItem';
 import BookContextMenuPopup, { type BookContextMenuItem } from './BookContextMenuPopup';
@@ -85,6 +87,36 @@ export const generateBookshelfItems = (
   );
 
   return [...ungroupedBooks, ...groupedBooks].sort((a, b) => b.updatedAt - a.updatedAt);
+};
+
+// A native popup blocks Tauri's main thread until the menu is dismissed and
+// holds the webview's resources table lock for that whole time, while
+// menu.close() destroys the resource through a *synchronous* command, which
+// runs on that same main thread. Releasing a menu while a popup is on screen
+// therefore deadlocks the app: the main thread blocks on a lock that only the
+// dismissal releases, and a blocked main thread can no longer dismiss the
+// menu. The library's startup churn (books streaming in, covers, sync) used
+// to re-render right into that window and freeze the app for good.
+// Native popups are modal and app-wide, so the gate is module scoped: a
+// release queued by any bookshelf item would freeze another item's popup.
+let openPopup: Promise<unknown> | null = null;
+
+const trackPopup = async (popup: Promise<void>) => {
+  const settled = popup.catch(() => {});
+  openPopup = settled;
+  await settled;
+  if (openPopup === settled) openPopup = null;
+};
+
+const releaseMenu = (menu: Promise<Menu>) => {
+  const close = () => {
+    if (openPopup) {
+      void openPopup.then(close);
+      return;
+    }
+    void menu.then((m) => m.close()).catch(() => {});
+  };
+  close();
 };
 
 interface BookshelfItemProps {
@@ -250,6 +282,13 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
           eventDispatcher.dispatch('show-share-dialog', { book });
         },
       },
+      sendNearby: {
+        text: _('Send to Nearby Device'),
+        action: async () => {
+          // LocalSendManager hosts the device picker and resolves the file.
+          eventDispatcher.dispatch('localsend-send-books', { books: [book] });
+        },
+      },
       delete: {
         text: _('Delete'),
         action: async () => {
@@ -257,7 +296,9 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         },
       },
     };
-    return getBookContextMenuItemIds(book).map((id) => itemOptions[id]);
+    return getBookContextMenuItemIds(book, {
+      localSend: isTauriAppPlatform() && isLocalSendEnabled(),
+    }).map((id) => itemOptions[id]);
   };
 
   const buildGroupMenuItems = (group: BooksGroup): BookContextMenuItem[] => {
@@ -325,12 +366,13 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
 
   // Drop the cache whenever state baked into the items changes (selection
   // label, book status, reveal path, language); the cleanup also runs on
-  // unmount so the native menu resource is released.
+  // unmount so the native menu resource is released — but never while a popup
+  // is still on screen, see releaseMenu.
   useEffect(() => {
     return () => {
       const cached = cachedMenuRef.current;
       cachedMenuRef.current = null;
-      cached?.then((menu) => menu.close()).catch(() => {});
+      if (cached) releaseMenu(cached);
     };
   }, [item, itemSelected, isSelectMode, settings.localBooksDir, _]);
 
@@ -379,7 +421,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
       // happens to sit. On macOS and Windows — the only platforms still on the
       // native menu — CSS px are window-logical px, so the client coordinates
       // pass through unchanged.
-      await menu.popup(new LogicalPosition(position.x, position.y));
+      await trackPopup(menu.popup(new LogicalPosition(position.x, position.y)));
     }, 100),
     [item, itemSelected, isSelectMode, settings.localBooksDir],
   );

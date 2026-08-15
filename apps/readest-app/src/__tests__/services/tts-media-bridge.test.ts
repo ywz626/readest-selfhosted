@@ -355,6 +355,30 @@ describe('TTSMediaBridge', () => {
     expect(bridge.isBound).toBe(true);
   });
 
+  // The Update Frequency setting is the only thing choosing what the lock
+  // screen names. Hardcoding one shape here is how it silently went dead.
+  test('metadataMode drives what Now Playing names', async () => {
+    await bridge.bind(controller as unknown as TTSController, {
+      ...meta(),
+      getSectionLabel: () => 'Chapter I',
+    });
+    controller.emitMark('The queen without love walked on.', '0');
+    await new Promise((r) => setTimeout(r, 0));
+    const sentence = fake.metadata as FakeMediaMetadata;
+    expect(sentence.title).toBe('The queen without love walked on.');
+    expect(sentence.artist).toBe('Chapter I');
+
+    await bridge.bind(controller as unknown as TTSController, {
+      ...meta({ metadataMode: 'chapter' as const }),
+      getSectionLabel: () => 'Chapter I',
+    });
+    controller.emitMark('The queen without love walked on.', '0');
+    await new Promise((r) => setTimeout(r, 0));
+    const chapter = fake.metadata as FakeMediaMetadata;
+    expect(chapter.title).toBe('Chapter I');
+    expect(chapter.artist).toBe('Carroll');
+  });
+
   test('bind reports an active CarPlay state', async () => {
     notifyCarPlayMock.mockClear();
     await bind();
