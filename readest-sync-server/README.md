@@ -64,7 +64,7 @@ AUTH_CODE=changeme JWT_SECRET=$(openssl rand -hex 32) go run .
 
 ## 客户端改动（让自建服务端真正可用）
 
-在 `apps/readest-app/` 开启自建模式开关 `NEXT_PUBLIC_SELFHOSTED=1`，并配置 `NEXT_PUBLIC_API_BASE_URL`（指向本服务端，如 `https://sync.example.com`）。客户端会：
+在 `apps/readest-app/` 开启自建模式：复制 `.env.server.example` 为 `.env.server`，设 `NEXT_PUBLIC_SELFHOSTED=1` 并配置 `NEXT_PUBLIC_API_BASE_URL`（指向本服务端，如 `https://sync.example.com`），然后 `pnpm dev-server` / `build-server` / `start-server` 启动。客户端会：
 
 - 用邮箱/密码框作为「登录码」调用 `POST /api/auth` 拿 JWT；
 - token 存 `localStorage['token']`，`sub` 作为用户标识；
