@@ -4,6 +4,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { SELFHOSTED } from '@/utils/supabase';
 import { selfhostedLogin, jwtToUser, saveLoginCode } from '@/services/selfhostedAuth';
 import type { SelfhostedUser } from '@/services/selfhostedAuth';
+import { getSelfhostedServerUrl, saveSelfhostedServerUrl } from '@/services/selfhostedServerUrl';
 
 type AuthView = 'sign_in' | 'sign_up' | 'magic_link' | 'forgotten_password';
 
@@ -38,6 +39,9 @@ export default function EmailPasswordAuth({
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [keyboardInset, setKeyboardInset] = useState(0);
+  // Self-hosted mode: server address entered at runtime (persisted) instead of
+  // baked in at build time, so a shared installer works for any user.
+  const [serverUrl, setServerUrl] = useState(() => getSelfhostedServerUrl());
 
   const hasPassword = view === 'sign_in' || view === 'sign_up';
 
@@ -101,6 +105,7 @@ export default function EmailPasswordAuth({
       // Self-hosted mode: a single shared code is used instead of email/password.
       if (SELFHOSTED) {
         try {
+          saveSelfhostedServerUrl(serverUrl);
           const { access_token } = await selfhostedLogin(password);
           const user = jwtToUser(access_token);
           if (!user) throw new Error('invalid token');
@@ -126,11 +131,7 @@ export default function EmailPasswordAuth({
               ),
             );
           } else if (err.reason === 'no-url') {
-            setError(
-              _(
-                'No sync server address is configured. Please set NEXT_PUBLIC_API_BASE_URL and rebuild the app.',
-              ),
-            );
+            setError(_('Please enter your sync server address above before signing in.'));
           } else if (err.reason === 'server') {
             setError(
               _(
@@ -205,6 +206,26 @@ export default function EmailPasswordAuth({
       onSubmit={handleSubmit}
       className='w-full space-y-4'
     >
+      {SELFHOSTED && (
+        <div className='form-control'>
+          <label className='label' htmlFor='server-url'>
+            <span className='label-text'>{_('Sync server address')}</span>
+          </label>
+          <input
+            id='server-url'
+            name='server-url'
+            type='url'
+            inputMode='url'
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder={_('https://sync.your-server.com')}
+            autoComplete='url'
+            className='input input-bordered eink-bordered w-full rounded-lg placeholder:text-sm'
+            disabled={loading}
+            onFocus={keepAboveKeyboard}
+          />
+        </div>
+      )}
       {!SELFHOSTED && (
         <div className='form-control'>
           <label className='label' htmlFor='email'>

@@ -1,3 +1,5 @@
+import { getSelfhostedServerUrl } from './selfhostedServerUrl';
+
 export interface SelfhostedLoginResult {
   access_token: string;
   token_type: string;
@@ -35,13 +37,13 @@ export function getSavedLoginCode(): string {
 }
 
 /**
- * Self-hosted server base URL. In self-hosted mode this MUST point at the
- * user's own sync server — it must never fall back to the official
- * `web.readest.com`. If unset the login call fails loudly instead of leaking
- * the shared code to a third-party domain.
+ * Self-hosted server base URL. Read lazily at call time from the runtime store
+ * (set from the login form) so a pre-built installer works without per-user
+ * rebuilds. In self-hosted mode this MUST point at the user's own sync server —
+ * it never falls back to the official `web.readest.com`. If unset the login
+ * call fails loudly instead of leaking the shared code to a third-party domain.
  */
-const SELFHOSTED_BASE_URL =
-  process.env['NEXT_PUBLIC_API_BASE_URL'] || process.env['API_BASE_URL'] || '';
+const getSelfhostedBaseUrl = (): string => getSelfhostedServerUrl();
 
 /**
  * A stable per-installation device id, persisted in localStorage. Sent to the
@@ -90,7 +92,8 @@ export class SelfhostedLoginError extends Error {
 }
 
 export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResult> {
-  if (!SELFHOSTED_BASE_URL) {
+  const baseUrl = getSelfhostedBaseUrl();
+  if (!baseUrl) {
     throw new SelfhostedLoginError('Self-hosted server URL is not configured', 'no-url');
   }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -101,7 +104,7 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
   // getAPIBaseUrl, so the login endpoint must live on the same prefix.
   let res: Response;
   try {
-    res = await fetch(`${SELFHOSTED_BASE_URL}/api/auth`, {
+    res = await fetch(`${baseUrl}/api/auth`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ code }),
@@ -112,10 +115,7 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
     // than a non-2xx response. Previously these were silently folded into
     // "invalid code", making it impossible to tell a bad password from a dead
     // server.
-    throw new SelfhostedLoginError(
-      `Cannot reach the sync server at ${SELFHOSTED_BASE_URL}`,
-      'network',
-    );
+    throw new SelfhostedLoginError(`Cannot reach the sync server at ${baseUrl}`, 'network');
   }
   if (!res.ok) {
     const status = res.status;
@@ -158,7 +158,7 @@ export async function selfhostedLogin(code: string): Promise<SelfhostedLoginResu
   } catch {
     throw new SelfhostedLoginError(
       `Sync server returned a non-JSON response (HTTP ${res.status}); ` +
-        `check the server URL and that ${SELFHOSTED_BASE_URL}/api/auth is reachable`,
+        `check the server URL and that ${baseUrl}/api/auth is reachable`,
       'server',
       { status: res.status },
     );

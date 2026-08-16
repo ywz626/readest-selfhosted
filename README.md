@@ -9,7 +9,7 @@
 ## 与官方版的主要区别
 
 - **自行部署服务端**：云同步不再依赖 Readest 官方服务器 / Supabase，而是使用本仓库内置的 `readest-sync-server`（Go 单二进制，SQLite + 本地磁盘），数据存储在自己掌控的服务器上。
-- **自行打包安装包**：需要自己用 `tauri build` 打包客户端安装包，官方商店 / GitHub Releases 不提供本版。
+- **服务端地址运行时输入**：客户端安装包内置自托管模式，用户首次登录时在应用内填写自己的同步服务端地址即可，无需自行编译。
 - **主要解锁能力：云同步空间**：官方版「云同步空间」受订阅计划 / 配额限制；自托管模式下不受 Stripe / IAP 付费配额限制，可自由使用云端同步与存储。
 
 请阅读 [自托管部署指南](#自托管部署指南) 获取服务端部署与客户端打包的完整步骤。
@@ -41,25 +41,17 @@ go mod tidy
 AUTH_CODE=changeme JWT_SECRET=$(openssl rand -hex 32) go run .
 ```
 
-> 服务端为独立实现，不包含 Readest 客户端源代码。部署时请确保服务器域名开启 HTTPS，并能在客户端配置的 `NEXT_PUBLIC_API_BASE_URL` 上被访问到。
+> 服务端为独立实现，不包含 Readest 客户端源代码。部署时请确保服务器域名开启 HTTPS，并能在客户端访问到。
 
-### 2. 配置客户端指向自建服务端
+### 2. 打包客户端安装包（Tauri）
 
-在 `apps/readest-app/` 下：
+客户端安装包内置自托管模式，**无需为每个用户单独配置服务端地址**——用户首次登录时在应用内填写自己的地址即可。确认依赖与构建工具已就绪后，在 `apps/readest-app/` 下执行：
 
 ```bash
 cd apps/readest-app
+# 首次：复制并编辑 .env.server，确保 NEXT_PUBLIC_SELFHOSTED=1（见 build-server 脚本）
 cp .env.server.example .env.server
-# 编辑 .env.server：
-#   NEXT_PUBLIC_SELFHOSTED=1
-#   NEXT_PUBLIC_API_BASE_URL=https://sync.example.com   # 指向第 1 步部署的服务端
-```
 
-### 3. 打包客户端安装包（Tauri）
-
-确认依赖与构建工具已就绪后，在 `apps/readest-app/` 下执行：
-
-```bash
 pnpm install
 pnpm build-tauri        # 用 .env.tauri 构建前端
 pnpm tauri build        # 打包桌面安装包（Windows / macOS / Linux）
@@ -72,9 +64,14 @@ pnpm tauri build        # 打包桌面安装包（Windows / macOS / Linux）
 - **macOS**：`.dmg` / `.app`
 - **Linux**：`.AppImage` / `.deb` / `.rpm`
 
-### 4. 使用
+### 3. 使用（分发 / 用户侧）
 
-安装打包好的客户端，在登录界面输入第 1 步设置的 **`AUTH_CODE` 登录码**即可登录并开始云同步。数据（书籍、标注、进度、配置）与书籍文件均存储在你自己的服务器上，不受订阅配额限制。
+
+**用户**安装客户端后：
+1. 打开应用进入登录界面，先填写自己的**同步服务端地址**（如 `https://sync.example.com`），地址会保存在本地，无需重复填写。
+2. 再输入部署服务端时设置的 **`AUTH_CODE` 登录码**，即可登录并开始云同步。
+
+数据（书籍、标注、进度、配置）与书籍文件均存储在你自己的服务器上，不受订阅配额限制。
 
 ## License
 
