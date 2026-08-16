@@ -43,6 +43,8 @@ android {
             // 自托管版关闭 minify：应用含 JNI 库（turso_sdk_kit 等），
             // R8 可能静默移除反射/JNI 调用的类导致运行时崩溃
             isMinifyEnabled = false
+            // 自托管服务器常为本地/内网 IP 或未配 HTTPS，release 也需允许明文 HTTP
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
             // 使用 debug 签名，产出的 APK 可直接安装
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
