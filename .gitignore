@@ -20,6 +20,9 @@ docker/.env
 
 # misc temp dirs
 .tmp-official/
+.tmp_apk*/
+hs_err_pid*.log
+replay_pid*.log
 
 # production
 /build
