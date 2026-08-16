@@ -8,7 +8,7 @@
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build && pnpm upload-sourcemaps"
+    "beforeBuildCommand": "dotenv -v KEEP_SOURCEMAPS=1 -e .env.tauri -e .env.tauri.local -e .env.server -- next build && pnpm upload-sourcemaps"
   },
   "app": {
     "windows": [],
