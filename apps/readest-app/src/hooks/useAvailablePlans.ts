@@ -3,6 +3,7 @@ import { fetchAndTransformIAPPlans, isIAPAvailable } from '@/libs/payment/iap/cl
 import { fetchStripePlans } from '@/libs/payment/stripe/client';
 import { AvailablePlan } from '@/types/quota';
 import { stubTranslation as _ } from '@/utils/misc';
+import { SELFHOSTED } from '@/utils/supabase';
 
 const IAP_PRODUCT_IDS = [
   'com.bilingify.readest.monthly.plus',
@@ -25,6 +26,15 @@ export const useAvailablePlans = ({ hasIAP, onError }: UseAvailablePlansParams) 
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    // Self-hosted deployments have no Stripe/IAP checkout flow, so skip
+    // fetching available plans and avoid surfacing a confusing error toast.
+    if (SELFHOSTED) {
+      setAvailablePlans([]);
+      setIapAvailable(false);
+      setLoading(false);
+      return;
+    }
+
     const fetchPlans = async () => {
       setLoading(true);
       setError(null);
