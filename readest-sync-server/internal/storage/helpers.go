@@ -21,8 +21,14 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 func bookHashFromKey(key string) *string {
-	// expected: owner/books/<hash>/<file> or owner/replicas/...
+	// expected: owner/Readest/Books/<hash>/<file> (new) or owner/books/<hash>/<file> (legacy)
 	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		if p == "Books" && i > 0 && parts[i-1] == "Readest" && i+1 < len(parts) {
+			v := parts[i+1]
+			return &v
+		}
+	}
 	for i, p := range parts {
 		if p == "books" && i+1 < len(parts) {
 			v := parts[i+1]
@@ -33,8 +39,16 @@ func bookHashFromKey(key string) *string {
 }
 
 func replicaInfoFromKey(key string) (kind, id *string) {
-	// expected: owner/replicas/<kind>/<id>/<file>
+	// expected: owner/Readest/Replicas/<kind>/<id>/<file> (new)
+	// or owner/replicas/<kind>/<id>/<file> (legacy)
 	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		if p == "Replicas" && i > 0 && parts[i-1] == "Readest" && i+2 < len(parts) {
+			k := parts[i+1]
+			r := parts[i+2]
+			return &k, &r
+		}
+	}
 	for i, p := range parts {
 		if p == "replicas" && i+2 < len(parts) {
 			k := parts[i+1]
@@ -43,6 +57,23 @@ func replicaInfoFromKey(key string) (kind, id *string) {
 		}
 	}
 	return nil, nil
+}
+
+// legacyStorageKey maps a new-format storage key back to the layout produced by
+// buildKey before the key-format fix, so files uploaded by earlier server
+// builds remain downloadable:
+//
+//	owner/Readest/Books/<hash>/<file>          -> owner/books/<hash>/Readest/Books/<hash>/<file>
+//	owner/Readest/Replicas/<kind>/<id>/<file>  -> owner/replicas/<kind>/<id>/Readest/Replicas/<kind>/<id>/<file>
+func legacyStorageKey(key string) (string, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) >= 4 && parts[1] == "Readest" && parts[2] == "Books" {
+		return parts[0] + "/books/" + parts[3] + "/" + strings.Join(parts[1:], "/"), true
+	}
+	if len(parts) >= 5 && parts[1] == "Readest" && parts[2] == "Replicas" {
+		return parts[0] + "/replicas/" + parts[3] + "/" + parts[4] + "/" + strings.Join(parts[1:], "/"), true
+	}
+	return "", false
 }
 
 func sortFiles(files []store.FileMeta, by, order string) {

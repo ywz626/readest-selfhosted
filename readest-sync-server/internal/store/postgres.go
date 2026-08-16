@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -50,7 +51,7 @@ func (s *PostgresStore) migrate() error {
 		);
 		CREATE TABLE IF NOT EXISTS stat_pages (
 			user_id TEXT, book_hash TEXT, page INTEGER, start_time BIGINT, duration BIGINT, total_pages INTEGER, updated_at_ms BIGINT, deleted_at BIGINT,
-			PRIMARY KEY(user_id, book_hash, page)
+			PRIMARY KEY(user_id, book_hash, page, start_time)
 		);
 		CREATE TABLE IF NOT EXISTS replicas (
 			user_id TEXT, kind TEXT, replica_id TEXT, fields_jsonb TEXT, manifest_jsonb TEXT, deleted_at_ts TEXT, reincarnation TEXT, updated_at_ts TEXT, schema_version INTEGER,
@@ -61,10 +62,109 @@ func (s *PostgresStore) migrate() error {
 			PRIMARY KEY(user_id, salt_id)
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migrate stat_pages so start_time is part of the primary key (mirrors the
+	// official schema). Separate reading sessions of the same page were
+	// previously collapsed into one row and overwritten.
+	var pkeyHasStartTime bool
+	err = s.db.QueryRow(`
+		SELECT bool_and(kcu.column_name IN ('user_id','book_hash','page','start_time'))
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+			ON tc.constraint_name = kcu.constraint_name AND tc.constraint_schema = kcu.constraint_schema
+		WHERE tc.table_name = 'stat_pages' AND tc.constraint_type = 'PRIMARY KEY'`).Scan(&pkeyHasStartTime)
+	if err == nil && !pkeyHasStartTime {
+		var constraintName string
+		_ = s.db.QueryRow(`
+			SELECT tc.constraint_name FROM information_schema.table_constraints tc
+			WHERE tc.table_name = 'stat_pages' AND tc.constraint_type = 'PRIMARY KEY' LIMIT 1`).Scan(&constraintName)
+		if constraintName != "" {
+			if _, err := s.db.Exec(`ALTER TABLE stat_pages DROP CONSTRAINT "` + constraintName + `"`); err != nil {
+				return err
+			}
+			if _, err := s.db.Exec(`UPDATE stat_pages SET start_time = 0 WHERE start_time IS NULL`); err != nil {
+				return err
+			}
+			if _, err := s.db.Exec(`ALTER TABLE stat_pages ADD PRIMARY KEY (user_id, book_hash, page, start_time)`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
+func (s *PostgresStore) GetBook(ctx context.Context, userID, bookHash string) (*BookRow, error) {
+	var b BookRow
+	var data string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id,book_hash,meta_hash,updated_at,deleted_at,synced_at,data FROM books
+		WHERE user_id=$1 AND book_hash=$2`, userID, bookHash).Scan(&b.ID, &b.BookHash, &b.MetaHash, &b.UpdatedAt, &b.DeletedAt, &b.SyncedAt, &data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	b.UserID = userID
+	b.Data = []byte(data)
+	return &b, nil
+}
+
+// UpsertBook mirrors the official sync server's row- and field-level LWW:
+//   - row-level: the incoming row wins if its deleted_at or updated_at is newer;
+//   - field-level: reading_status, cover_hash and metadata are each grafted
+//     onto the server row when the incoming field timestamp is newer.
 func (s *PostgresStore) UpsertBook(ctx context.Context, b BookRow) error {
+	existing, err := s.GetBook(ctx, b.UserID, b.BookHash)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return s.upsertBookRaw(ctx, b)
+	}
+	clientNewer := false
+	if b.DeletedAt != nil && (existing.DeletedAt == nil || *b.DeletedAt > *existing.DeletedAt) {
+		clientNewer = true
+	}
+	if b.UpdatedAt != nil && (existing.UpdatedAt == nil || *b.UpdatedAt > *existing.UpdatedAt) {
+		clientNewer = true
+	}
+	if clientNewer {
+		// Incoming row wins wholesale; preserve the server's created_at.
+		var serverData, clientData map[string]interface{}
+		if json.Unmarshal(existing.Data, &serverData) == nil && json.Unmarshal(b.Data, &clientData) == nil {
+			if created, ok := serverData["created_at"]; ok {
+				clientData["created_at"] = created
+			}
+			if bd, err := json.Marshal(clientData); err == nil {
+				b.Data = bd
+			}
+		}
+		return s.upsertBookRaw(ctx, b)
+	}
+	// Server row wins; graft the client's newer fields.
+	var serverData, clientData map[string]interface{}
+	if json.Unmarshal(existing.Data, &serverData) == nil && json.Unmarshal(b.Data, &clientData) == nil {
+		merged, maxTS := mergeBookFields(serverData, clientData)
+		if merged {
+			if nd, err := json.Marshal(serverData); err == nil {
+				existing.Data = nd
+			}
+			existing.SyncedAt = time.Now().UTC().Format(time.RFC3339)
+			if maxTS != "" {
+				if t, err := time.Parse(time.RFC3339, maxTS); err == nil {
+					ms := t.UnixMilli()
+					existing.UpdatedAt = &ms
+				}
+			}
+		}
+	}
+	return s.upsertBookRaw(ctx, *existing)
+}
+
+func (s *PostgresStore) upsertBookRaw(ctx context.Context, b BookRow) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO books (id,user_id,book_hash,meta_hash,updated_at,deleted_at,synced_at,data)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -140,6 +240,25 @@ func (s *PostgresStore) UpsertNote(ctx context.Context, userID string, data []by
 	_ = jsonUnmarshalField(data, "id", &noteID)
 	_ = jsonUnmarshalField(data, "updated_at", &updatedAt)
 	_ = jsonUnmarshalField(data, "deleted_at", &deletedAt)
+	// last-writer-wins: the incoming row wins if its deleted_at or updated_at
+	// is newer (mirrors the official server's `clientDeletedAt > serverDeletedAt
+	// || clientUpdatedAt > serverUpdatedAt`). This lets note deletions propagate.
+	var oldUpdated, oldDeleted sql.NullInt64
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT updated_at, deleted_at FROM notes WHERE user_id=$1 AND note_id=$2`,
+		userID, noteID).Scan(&oldUpdated, &oldDeleted)
+	if oldUpdated.Valid || oldDeleted.Valid {
+		clientNewer := false
+		if deletedAt != nil && (!oldDeleted.Valid || *deletedAt > oldDeleted.Int64) {
+			clientNewer = true
+		}
+		if updatedAt != nil && (!oldUpdated.Valid || *updatedAt > oldUpdated.Int64) {
+			clientNewer = true
+		}
+		if !clientNewer {
+			return nil
+		}
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO notes (user_id,note_id,updated_at,deleted_at,data)
 		VALUES ($1,$2,$3,$4,$5)
@@ -149,8 +268,12 @@ func (s *PostgresStore) UpsertNote(ctx context.Context, userID string, data []by
 }
 
 func (s *PostgresStore) PullNotes(ctx context.Context, userID string, sinceMs int64) ([][]byte, error) {
+	// Deleted notes only bump deleted_at, so the cursor must consider both
+	// columns or deletions would never reach other devices.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT data FROM notes WHERE user_id=$1 AND COALESCE(updated_at,0) > $2 ORDER BY updated_at ASC`, userID, sinceMs)
+		SELECT data FROM notes
+		WHERE user_id=$1 AND (COALESCE(updated_at,0) > $2 OR COALESCE(deleted_at,0) > $2)
+		ORDER BY COALESCE(updated_at,0) ASC`, userID, sinceMs)
 	if err != nil {
 		return nil, err
 	}
@@ -235,11 +358,20 @@ func (s *PostgresStore) PullStatBooks(ctx context.Context, userID string, sinceM
 
 func (s *PostgresStore) UpsertStatPages(ctx context.Context, rows []StatPageRow) error {
 	for _, r := range rows {
+		// Keep the longer-duration session for the same (book, page, session)
+		// key (mirrors the official server's pickWinningPages).
+		var oldDur sql.NullInt64
+		_ = s.db.QueryRowContext(ctx,
+			`SELECT duration FROM stat_pages WHERE user_id=$1 AND book_hash=$2 AND page=$3 AND start_time=$4`,
+			r.UserID, r.BookHash, r.Page, r.StartTime).Scan(&oldDur)
+		if oldDur.Valid && r.Duration < oldDur.Int64 {
+			continue
+		}
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO stat_pages (user_id,book_hash,page,start_time,duration,total_pages,updated_at_ms,deleted_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-			ON CONFLICT(user_id,book_hash,page) DO UPDATE SET
-				start_time=EXCLUDED.start_time, duration=EXCLUDED.duration, total_pages=EXCLUDED.total_pages,
+			ON CONFLICT(user_id,book_hash,page,start_time) DO UPDATE SET
+				duration=EXCLUDED.duration, total_pages=EXCLUDED.total_pages,
 				updated_at_ms=EXCLUDED.updated_at_ms, deleted_at=EXCLUDED.deleted_at`,
 			r.UserID, r.BookHash, r.Page, r.StartTime, r.Duration, r.TotalPages, r.UpdatedAtMs, r.DeletedAt)
 		if err != nil {

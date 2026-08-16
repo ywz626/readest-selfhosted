@@ -11,7 +11,7 @@ import (
 // blobKeyPrefix is stripped from the request path to recover the storage key.
 const blobKeyPrefix = "/api/storage/blob/"
 
-// PUT /api/storage/blob/<key>  (key form: owner/books/h1.epub)
+// PUT /api/storage/blob/<key>  (key form: owner/Readest/Books/<hash>/<file>)
 func (h *StorageHandler) BlobPut(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, blobKeyPrefix)
 	uid := middleware.UserID(r)
@@ -49,8 +49,16 @@ func (h *StorageHandler) BlobGet(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, err := h.fs.Get(r.Context(), key)
 	if err != nil {
-		http.Error(w, "", http.StatusNotFound)
-		return
+		// Backward compatibility: files uploaded before the key-format fix live
+		// under owner/books/<hash>/Readest/Books/<hash>/<file> (replicas: same
+		// nesting under owner/replicas/...). Try that legacy location too.
+		if legacy, ok := legacyStorageKey(key); ok {
+			rc, err = h.fs.Get(r.Context(), legacy)
+		}
+		if err != nil {
+			http.Error(w, "", http.StatusNotFound)
+			return
+		}
 	}
 	defer rc.Close()
 	w.Header().Set("Content-Type", "application/octet-stream")

@@ -85,6 +85,7 @@ type FileMeta struct {
 
 type MetadataStore interface {
 	UpsertBook(ctx context.Context, b BookRow) error
+	GetBook(ctx context.Context, userID, bookHash string) (*BookRow, error)
 	PullBooks(ctx context.Context, userID string, sinceISO string, limit int) ([]BookRow, error)
 	UpsertNote(ctx context.Context, userID string, data []byte) error
 	PullNotes(ctx context.Context, userID string, sinceMs int64) ([][]byte, error)

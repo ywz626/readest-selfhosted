@@ -271,6 +271,55 @@ func TestReplicaKeysRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPushConfigsPiggybacksBookProgress(t *testing.T) {
+	ms, _ := store.NewSqliteStore(":memory:")
+	h := NewSyncHandler(ms)
+	svc := auth.NewService("c", "s")
+	tok, _ := svc.IssueToken("owner")
+	// Seed the book row via a books push.
+	body := []byte(`{"books":[{"hash":"h1","title":"Test","updatedAt":1000}]}`)
+	req := newAuthedReq("POST", "/api/sync", body, tok)
+	rec := httptest.NewRecorder()
+	wrap(svc, h).ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("book push got %d", rec.Code)
+	}
+	// A config push with a newer timestamp must refresh the book row progress.
+	body2 := []byte(`{"configs":[{"bookHash":"h1","metaHash":"m1","progress":[1,500],"updatedAt":2000}]}`)
+	req2 := newAuthedReq("POST", "/api/sync", body2, tok)
+	rec2 := httptest.NewRecorder()
+	wrap(svc, h).ServeHTTP(rec2, req2)
+	if rec2.Code != 200 {
+		t.Fatalf("config push got %d", rec2.Code)
+	}
+	req3 := newAuthedReq("GET", "/api/sync?since=0&type=books", nil, tok)
+	rec3 := httptest.NewRecorder()
+	wrap(svc, h).ServeHTTP(rec3, req3)
+	if rec3.Code != 200 {
+		t.Fatal("pull failed")
+	}
+	var resp struct {
+		Books []json.RawMessage `json:"books"`
+	}
+	json.Unmarshal(rec3.Body.Bytes(), &resp)
+	if len(resp.Books) != 1 {
+		t.Fatalf("want 1 book got %d", len(resp.Books))
+	}
+	var got struct {
+		BookHash string          `json:"book_hash"`
+		Progress json.RawMessage `json:"progress"`
+	}
+	if err := json.Unmarshal(resp.Books[0], &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.BookHash != "h1" {
+		t.Fatalf("book_hash = %q", got.BookHash)
+	}
+	if string(got.Progress) != `[1,500]` {
+		t.Fatalf("progress was not piggybacked onto the book row: %s", got.Progress)
+	}
+}
+
 func TestPushRejectsForeignUser(t *testing.T) {
 	ms, _ := store.NewSqliteStore(":memory:")
 	h := NewSyncHandler(ms)

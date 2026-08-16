@@ -50,6 +50,17 @@ func (h *StorageHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// buildKey maps an upload request to its storage key.
+//
+// The Readest client always sends a fully-formed cloud file path in FileName,
+// identical to the "cfp" it later uses to build download keys (uid + "/" + cfp):
+//
+//	book/cover uploads: fileName = Readest/Books/<hash>/<file>
+//	replica uploads:    fileName = Readest/Replicas/<kind>/<id>/<file>
+//
+// So the stored key MUST be uid + "/" + FileName verbatim. Any prefix rewriting
+// here (e.g. the old uid/books/<hash>/<fileName> layout) silently breaks every
+// download: the client looks up uid/Readest/Books/<hash>/<file> and gets a 404.
 func buildKey(uid string, body struct {
 	FileName    string `json:"fileName"`
 	FileSize    int64  `json:"fileSize"`
@@ -60,10 +71,10 @@ func buildKey(uid string, body struct {
 	Media       string `json:"media"`
 }) string {
 	if body.ReplicaKind != "" && body.ReplicaID != "" {
-		return uid + "/replicas/" + body.ReplicaKind + "/" + body.ReplicaID + "/" + body.FileName
+		return uid + "/" + body.FileName
 	}
 	if body.BookHash != "" {
-		return uid + "/books/" + body.BookHash + "/" + body.FileName
+		return uid + "/" + body.FileName
 	}
 	if body.Temp {
 		return uid + "/temp/" + body.FileName
@@ -128,8 +139,12 @@ func (h *StorageHandler) List(w http.ResponseWriter, r *http.Request) {
 	// filter
 	filtered := make([]store.FileMeta, 0, len(all))
 	for _, f := range all {
-		if bookHash != "" && !strings.Contains(f.Key, "/books/"+bookHash+"/") {
-			continue
+		if bookHash != "" {
+			matched := strings.Contains(f.Key, "/Readest/Books/"+bookHash+"/") ||
+				strings.Contains(f.Key, "/books/"+bookHash+"/")
+			if !matched {
+				continue
+			}
 		}
 		if search != "" && !strings.Contains(f.Key, search) {
 			continue

@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -154,6 +155,14 @@ func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
+		// Piggyback the latest reading progress onto the book row so other
+		// devices see fresh library progress (mirrors the official server).
+		if len(p.Progress) > 0 && p.UpdatedAt != nil {
+			if err := h.piggybackBookProgress(ctx, uid, p.BookHash, p.Progress, *p.UpdatedAt); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
 	}
 	if len(payload.StatBooks) > 0 {
 		bookRows := make([]store.StatBookRow, 0, len(payload.StatBooks))
@@ -212,4 +221,29 @@ func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]string{})
+}
+
+// piggybackBookProgress mirrors the official server's config->books progress
+// piggyback: after a config upsert, the book row's progress is refreshed when
+// the config timestamp is newer, so other devices pull fresh library progress.
+func (h *SyncHandler) piggybackBookProgress(ctx context.Context, uid, bookHash string, progress json.RawMessage, updatedAtMs int64) error {
+	existing, err := h.ms.GetBook(ctx, uid, bookHash)
+	if err != nil {
+		return err
+	}
+	if existing == nil || existing.UpdatedAt != nil && *existing.UpdatedAt >= updatedAtMs {
+		return nil
+	}
+	var book dbBook
+	if err := json.Unmarshal(existing.Data, &book); err != nil {
+		return nil
+	}
+	book.Progress = progress
+	if iso := epochMsToISO(&updatedAtMs); iso != nil {
+		book.UpdatedAt = *iso
+	}
+	existing.UpdatedAt = &updatedAtMs
+	existing.SyncedAt = time.Now().UTC().Format(time.RFC3339)
+	existing.Data = mustJSON(&book)
+	return h.ms.UpsertBook(ctx, *existing)
 }
