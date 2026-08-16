@@ -130,6 +130,13 @@ const devHmrPatchScript = `(${patchTauriHmrWebSocket.toString()})(${JSON.stringi
 // consumers fall back to `NEXT_PUBLIC_*` envs baked at build time on Tauri.
 const shouldInjectRuntimeConfig = process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'web';
 
+// Polyfills for WebViews older than Chrome 92 (e.g. Android System WebView on
+// e-ink readers). Next.js 16/Turbopack output uses these modern APIs directly;
+// without them the app crashes to a blank screen on old WebViews. They are
+// also required on Android because `tauri.localhost` is an http (non-secure)
+// context where `crypto.randomUUID` is unavailable natively.
+const legacyPolyfillsScript = `(function(){var h=Object.prototype.hasOwnProperty;if(!Object.hasOwn){try{Object.defineProperty(Object,"hasOwn",{value:function(o,k){return h.call(o,k)},writable:true,configurable:true})}catch(e){Object.hasOwn=function(o,k){return h.call(o,k)}}}if(!Array.prototype.at){Array.prototype.at=function(n){n=Math.trunc(n)||0;if(n<0)n+=this.length;return n<0||n>=this.length?undefined:this[n]}}if(!String.prototype.at){String.prototype.at=function(n){n=Math.trunc(n)||0;if(n<0)n+=this.length;return n<0||n>=this.length?undefined:this[n]}}if(!Array.prototype.findLast){Array.prototype.findLast=function(p,a){for(var i=this.length-1;i>=0;i--){if(p.call(a,this[i],i,this))return this[i]}return undefined};Array.prototype.findLastIndex=function(p,a){for(var i=this.length-1;i>=0;i--){if(p.call(a,this[i],i,this))return i}return -1}}if(typeof structuredClone!=="function"){structuredClone=function(v){return v===undefined?undefined:JSON.parse(JSON.stringify(v))}}if(typeof AbortSignal!=="undefined"&&!AbortSignal.timeout){AbortSignal.timeout=function(ms){var c=new AbortController();setTimeout(function(){try{c.abort(new DOMException("The operation timed out.","TimeoutError"))}catch(e){c.abort()}},ms);return c.signal}}if(typeof crypto!=="undefined"&&!crypto.randomUUID&&crypto.getRandomValues){crypto.randomUUID=function(){var b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&0x0f)|0x40;b[8]=(b[8]&0x3f)|0x80;var s="";for(var i=0;i<16;i++){if(i===4||i===6||i===8||i===10)s+="-";var x=b[i].toString(16);if(x.length===1)s+="0";s+=x}return s}}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Browser extensions can inject attributes on <html> before React hydrates it.
   return (
@@ -139,6 +146,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? 'edge-to-edge' : ''}
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: legacyPolyfillsScript }} />
         {shouldInjectRuntimeConfig ? (
           <Script src='/runtime-config.js' strategy='beforeInteractive' />
         ) : null}

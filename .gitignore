@@ -18,6 +18,9 @@ docker/.env
 **/.next.bak*/
 **/out.bak*/
 
+# misc temp dirs
+.tmp-official/
+
 # production
 /build
 

@@ -717,10 +717,10 @@ pub fn run() {
 
             #[cfg(not(target_os = "macos"))]
             {
-                win_builder.build().unwrap();
+                let win = win_builder.build().unwrap();
+                #[cfg(debug_assertions)]
+                win.open_devtools();
             }
-            // let win = win_builder.build().unwrap();
-            // win.open_devtools();
 
             #[cfg(target_os = "macos")]
             {

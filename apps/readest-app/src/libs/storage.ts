@@ -1,6 +1,6 @@
 import { getAPIBaseUrl, getBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
-import { getUserID } from '@/utils/access';
+import { getAccessToken, getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import {
   tauriUpload,
@@ -16,6 +16,17 @@ const toFullUrl = (url: string) => {
   const base = getBaseUrl().replace(/\/+$/, '');
   if (url.startsWith('/')) return `${base}${url}`;
   return `${base}/${url}`;
+};
+
+/**
+ * Signed URLs (R2/S3 pre-signed) carry their own credentials and must NOT
+ * get an Authorization header. Path-only blob URLs from a self-hosted
+ * server's LocalDiskStore need the Bearer token instead.
+ */
+const buildBlobAuthHeaders = async (url: string): Promise<Record<string, string>> => {
+  if (/^https?:\/\//i.test(url)) return {};
+  const token = await getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 const API_ENDPOINTS = {
@@ -71,10 +82,11 @@ export const uploadFile = async (
 
     const { uploadUrl, downloadUrl }: { uploadUrl: string; downloadUrl?: string } =
       await response.json();
+    const blobHeaders = await buildBlobAuthHeaders(uploadUrl);
     if (isWebAppPlatform()) {
-      await webUpload(file, uploadUrl, onProgress);
+      await webUpload(file, uploadUrl, onProgress, blobHeaders);
     } else {
-      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress);
+      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress, blobHeaders);
     }
     return temp || media ? downloadUrl : undefined;
   } catch (error) {
@@ -115,10 +127,11 @@ export const uploadReplicaFile = async (
     });
 
     const { uploadUrl }: { uploadUrl: string } = await response.json();
+    const blobHeaders = await buildBlobAuthHeaders(uploadUrl);
     if (isWebAppPlatform()) {
-      await webUpload(file, uploadUrl, onProgress);
+      await webUpload(file, uploadUrl, onProgress, blobHeaders);
     } else {
-      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress);
+      await tauriUpload(toFullUrl(uploadUrl), fileFullPath, 'PUT', onProgress, blobHeaders);
     }
   } catch (error) {
     console.error('Replica file upload failed:', error);
@@ -202,11 +215,13 @@ export const downloadFile = async ({
       throw new Error('No download URL available');
     }
 
+    const blobAuthHeaders = await buildBlobAuthHeaders(downloadUrl);
+    const mergedHeaders = { ...blobAuthHeaders, ...headers };
     if (isWebAppPlatform()) {
       const { headers: responseHeaders, blob } = await webDownload(
         downloadUrl,
         onProgress,
-        headers,
+        mergedHeaders,
       );
       await appService.writeFile(dst, 'None', await blob.arrayBuffer());
       return responseHeaders;
@@ -215,7 +230,7 @@ export const downloadFile = async ({
         toFullUrl(downloadUrl),
         dst,
         onProgress,
-        headers,
+        mergedHeaders,
         undefined,
         singleThreaded,
         skipSslVerification,

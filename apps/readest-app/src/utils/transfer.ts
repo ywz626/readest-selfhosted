@@ -78,11 +78,22 @@ export const createProgressThrottle = (
   };
 };
 
-export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHandler) => {
+export const webUpload = (
+  file: File,
+  uploadUrl: string,
+  onProgress?: ProgressHandler,
+  headers?: Record<string, string>,
+) => {
   return new Promise<void>((resolve, reject) => {
     const startTime = Date.now();
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', uploadUrl, true);
+
+    if (headers) {
+      for (const [name, value] of Object.entries(headers)) {
+        if (value) xhr.setRequestHeader(name, value);
+      }
+    }
 
     xhr.upload.onprogress = (event) => {
       if (onProgress && event.lengthComputable) {
@@ -161,7 +172,7 @@ export const tauriUpload = async (
   filePath: string,
   method: UploadMethod,
   progressHandler?: ProgressHandler,
-  headers?: Map<string, string>,
+  headers?: Record<string, string>,
 ): Promise<string> => {
   const ids = new Uint32Array(1);
   window.crypto.getRandomValues(ids);
