@@ -71,6 +71,7 @@ export abstract class BaseAppService implements AppService {
   hasIAP = false;
   canCustomizeRootDir = false;
   canReadExternalDir = false;
+  supportsCoverThumbnailOptimization = false;
   supportsCanvasContext2DFilter = true;
   supportsViewTransitionsAPI = false;
   supportsViewTransitionGroup = false;
@@ -510,6 +511,11 @@ export abstract class BaseAppService implements AppService {
 
   async loadLibraryBooks(): Promise<Book[]> {
     return LibrarySvc.loadLibraryBooks(this.fs, this.generateCoverImageUrl.bind(this));
+  }
+
+  requestCoverThumbnail(_book: Book): void {
+    // Native apps override this. Web and Node already load appropriately sized
+    // cover sources and do not have the Tauri thumbnail worker.
   }
 
   // Prompt for storage permission at most once per session (see saveLibraryBooks).
