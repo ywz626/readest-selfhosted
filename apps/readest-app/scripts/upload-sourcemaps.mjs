@@ -126,4 +126,11 @@ const main = () => {
   console.log(`Sentry: stripped ${removed} .js.map file(s) from the app bundle.`);
 };
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) main();
+// Detect a direct `node scripts/upload-sourcemaps.mjs` invocation on any
+// platform. Comparing URL strings is fragile on Windows (drive-letter case and
+// path separators differ), so compare normalized absolute paths instead.
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()
+)
+  main();
