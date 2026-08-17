@@ -235,6 +235,12 @@ export const useBooksSync = () => {
           mergedBook.tags = meta.tags;
           mergedBook.metadata = meta.metadata;
           mergedBook.metadataUpdatedAt = meta.metadataUpdatedAt;
+          // pinnedAt merges on the same metadata clock (pin/unpin bumps
+          // metadataUpdatedAt, matching services/sync/file/merge.ts).
+          // Without this a peer's later page-turn progress could silently
+          // clear this device's pin even though the row-level spread above
+          // put the winner's pinnedAt in place.
+          mergedBook.pinnedAt = meta.pinnedAt;
           // TTS reads primaryLanguage (not metadata.language); recompute it the
           // same way the editing device did so the edit is effective here too.
           if (meta.metadata) {

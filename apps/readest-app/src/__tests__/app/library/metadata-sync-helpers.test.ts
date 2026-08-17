@@ -32,6 +32,7 @@ describe('pickFresherMetadata (issue #5438)', () => {
       tags: ['news'],
       metadata: { title: 'Edited', author: 'B', language: 'sv' },
       metadataUpdatedAt: 200,
+      pinnedAt: undefined,
     });
   });
 
@@ -55,6 +56,28 @@ describe('pickFresherMetadata (issue #5438)', () => {
         book({ title: 'Other', metadataUpdatedAt: 100 }),
       ),
     ).toBeNull();
+  });
+
+  it('carries the winner’s pinnedAt so pin/unpin survives a peer merge', () => {
+    const localPinnedAt = 1000;
+    const syncedPinnedAt = 2000;
+    const out = pickFresherMetadata(
+      book({ title: 'A', pinnedAt: localPinnedAt, metadataUpdatedAt: 100 }),
+      book({ title: 'B', pinnedAt: syncedPinnedAt, metadataUpdatedAt: 200 }),
+    );
+    expect(out).toMatchObject({
+      title: 'B',
+      metadataUpdatedAt: 200,
+      pinnedAt: syncedPinnedAt,
+    });
+  });
+
+  it('carries the winner’s unpinned (undefined) state so an unpin propagates', () => {
+    const out = pickFresherMetadata(
+      book({ title: 'A', pinnedAt: 1000, metadataUpdatedAt: 100 }),
+      book({ title: 'B', metadataUpdatedAt: 200 }), // newer, but unpinned
+    );
+    expect(out?.pinnedAt).toBeUndefined();
   });
 });
 

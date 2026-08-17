@@ -954,17 +954,23 @@ export const pickFresherCover = (local: CoverFields, synced: CoverFields): Cover
     ? { coverHash: synced.coverHash, coverUpdatedAt: synced.coverUpdatedAt }
     : { coverHash: local.coverHash, coverUpdatedAt: local.coverUpdatedAt };
 
-type MetadataFields = Pick<Book, 'title' | 'author' | 'tags' | 'metadata' | 'metadataUpdatedAt'>;
+type MetadataFields = Pick<
+  Book,
+  'title' | 'author' | 'tags' | 'metadata' | 'metadataUpdatedAt' | 'pinnedAt'
+>;
 
 /**
  * Field-level last-writer-wins for the metadata group (title, author, tags,
- * metadata), by `metadataUpdatedAt` (issue #5438). Mirrors
+ * metadata, pinnedAt), by `metadataUpdatedAt` (issue #5438). Mirrors
  * {@link pickFresherReadingStatus} / {@link pickFresherCover}: the row's
  * `updatedAt` is dominated by page-turn progress, so a metadata edit must be
  * resolved by its own timestamp or reading the book on another device would
- * clobber it. Returns null when neither side's stamp is strictly fresher —
- * notably the unstamped legacy case — so the caller keeps the row-level
- * winner's fields (legacy behavior) instead of grafting.
+ * clobber it. `pinnedAt` also rides this clock: pin/unpin bumps
+ * `metadataUpdatedAt`, so a peer's progress-only update cannot silently clear
+ * another device's pin (matching the file-sync merge in
+ * `services/sync/file/merge.ts`). Returns null when neither side's stamp is
+ * strictly fresher — notably the unstamped legacy case — so the caller keeps
+ * the row-level winner's fields (legacy behavior) instead of grafting.
  */
 export const pickFresherMetadata = (
   local: MetadataFields,
@@ -980,6 +986,7 @@ export const pickFresherMetadata = (
     tags: winner.tags,
     metadata: winner.metadata,
     metadataUpdatedAt: winner.metadataUpdatedAt,
+    pinnedAt: winner.pinnedAt,
   };
 };
 
