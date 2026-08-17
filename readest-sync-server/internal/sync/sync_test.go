@@ -91,6 +91,61 @@ func TestPushBooks(t *testing.T) {
 	}
 }
 
+// TestPushBookPinnedAtRoundTrip verifies the pin timestamp survives cloud sync
+// end-to-end: the client pushes camelCase pinnedAt, the server stores it, and
+// the pulled DB-shaped record carries it back as pinned_at (ISO string) so the
+// client's transformBookFromDB can reinstate the pin on every device.
+func TestPushBookPinnedAtRoundTrip(t *testing.T) {
+	ms, _ := store.NewSqliteStore(":memory:")
+	h := NewSyncHandler(ms)
+	svc := auth.NewService("c", "s")
+	tok, _ := svc.IssueToken("owner")
+
+	push := func(body string) {
+		req := newAuthedReq("POST", "/api/sync", []byte(body), tok)
+		rec := httptest.NewRecorder()
+		wrap(svc, h).ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("push got %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	pullBook := func() map[string]interface{} {
+		req := newAuthedReq("GET", "/api/sync?since=0&type=books", nil, tok)
+		rec := httptest.NewRecorder()
+		wrap(svc, h).ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatal("pull failed")
+		}
+		var resp struct {
+			Books []json.RawMessage `json:"books"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Books) == 0 {
+			t.Fatal("no books pulled")
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(resp.Books[0], &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	// Pin the book; push its pinnedAt as epoch-ms.
+	push(`{"books":[{"hash":"h1","pinnedAt":1750000000000,"updatedAt":1000}]}`)
+	if got := pullBook()["pinned_at"]; got != "2025-06-15T15:06:40Z" {
+		t.Fatalf("pinned_at = %v, want ISO pin timestamp", got)
+	}
+
+	// Unpin: push without pinnedAt (updatedAt bumped). The stored row is
+	// wholly replaced, so pinned_at must be gone on pull.
+	push(`{"books":[{"hash":"h1","updatedAt":2000}]}`)
+	if _, ok := pullBook()["pinned_at"]; ok {
+		t.Fatal("pinned_at should be absent after unpin")
+	}
+}
+
 func TestPushConfigsAndNotes(t *testing.T) {
 	ms, _ := store.NewSqliteStore(":memory:")
 	h := NewSyncHandler(ms)

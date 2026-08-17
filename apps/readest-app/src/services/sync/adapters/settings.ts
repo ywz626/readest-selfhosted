@@ -40,6 +40,10 @@ export const SETTINGS_WHITELIST = [
   // other arrays here. Book- and selection-scope rules already ride along the
   // book config sync; only these global rules were stranded on one device.
   'globalViewSettings.proofreadRules',
+  // Groups pinned to the top of their parent folder. Whole-field LWW map of
+  // group-path -> pin-time; concurrent pins on two devices may lose one side,
+  // which is acceptable for a small set of pinned folders.
+  'libraryPinnedGroups',
   'globalReadSettings.customThemes',
   'globalReadSettings.customHighlightColors',
   'globalReadSettings.userHighlightColors',

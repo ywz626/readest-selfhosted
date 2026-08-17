@@ -65,6 +65,7 @@ type pushedBook struct {
 	UpdatedAt              *int64          `json:"updatedAt"`
 	DeletedAt              *int64          `json:"deletedAt"`
 	UploadedAt             *int64          `json:"uploadedAt"`
+	PinnedAt               *int64          `json:"pinnedAt"`
 }
 
 // dbBook is the DB-shaped book record returned on pull; the client parses it
@@ -91,6 +92,7 @@ type dbBook struct {
 	UpdatedAt              string          `json:"updated_at"`
 	DeletedAt              *string         `json:"deleted_at,omitempty"`
 	UploadedAt             *string         `json:"uploaded_at,omitempty"`
+	PinnedAt               *string         `json:"pinned_at,omitempty"`
 	SyncedAt               string          `json:"synced_at"`
 }
 
@@ -125,6 +127,7 @@ func bookToDB(p *pushedBook, uid, syncedAt string) *dbBook {
 		UpdatedAt:              time.UnixMilli(*updated).UTC().Format(time.RFC3339),
 		DeletedAt:              epochMsToISO(p.DeletedAt),
 		UploadedAt:             epochMsToISO(p.UploadedAt),
+		PinnedAt:               epochMsToISO(p.PinnedAt),
 		SyncedAt:               syncedAt,
 	}
 }
@@ -147,18 +150,18 @@ type pushedConfig struct {
 // can LWW and cursor on it (new Date(updated_at).getTime() works client-side
 // for both integers and ISO strings).
 type dbBookConfig struct {
-	UserID       string          `json:"user_id"`
-	BookHash     string          `json:"book_hash"`
-	MetaHash     string          `json:"meta_hash,omitempty"`
-	Progress     *string         `json:"progress"`
-	Location     string          `json:"location"`
-	XPointer     string          `json:"xpointer"`
-	RSVPPosition *string         `json:"rsvp_position"`
-	SearchConfig *string         `json:"search_config"`
-	ViewSettings *string         `json:"view_settings"`
-	CreatedAt    *int64          `json:"created_at"`
-	UpdatedAt    *int64          `json:"updated_at"`
-	DeletedAt    *int64          `json:"deleted_at"`
+	UserID       string  `json:"user_id"`
+	BookHash     string  `json:"book_hash"`
+	MetaHash     string  `json:"meta_hash,omitempty"`
+	Progress     *string `json:"progress"`
+	Location     string  `json:"location"`
+	XPointer     string  `json:"xpointer"`
+	RSVPPosition *string `json:"rsvp_position"`
+	SearchConfig *string `json:"search_config"`
+	ViewSettings *string `json:"view_settings"`
+	CreatedAt    *int64  `json:"created_at"`
+	UpdatedAt    *int64  `json:"updated_at"`
+	DeletedAt    *int64  `json:"deleted_at"`
 }
 
 func configToDB(p *pushedConfig, uid string) *dbBookConfig {
@@ -179,44 +182,44 @@ func configToDB(p *pushedConfig, uid string) *dbBookConfig {
 
 // pushedNote mirrors the client BookNote record (types/book.ts).
 type pushedNote struct {
-	BookHash  string  `json:"bookHash"`
-	MetaHash  string  `json:"metaHash"`
-	ID        string  `json:"id"`
-	Type      string  `json:"type"`
-	CFI       string  `json:"cfi"`
-	XPointer0 string  `json:"xpointer0"`
-	XPointer1 string  `json:"xpointer1"`
-	Page      *int    `json:"page"`
-	Text      string  `json:"text"`
-	Style     string  `json:"style"`
-	Color     string  `json:"color"`
-	Note      string  `json:"note"`
-	Global    *bool   `json:"global"`
-	CreatedAt *int64  `json:"createdAt"`
-	UpdatedAt *int64  `json:"updatedAt"`
-	DeletedAt *int64  `json:"deletedAt"`
+	BookHash  string `json:"bookHash"`
+	MetaHash  string `json:"metaHash"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	CFI       string `json:"cfi"`
+	XPointer0 string `json:"xpointer0"`
+	XPointer1 string `json:"xpointer1"`
+	Page      *int   `json:"page"`
+	Text      string `json:"text"`
+	Style     string `json:"style"`
+	Color     string `json:"color"`
+	Note      string `json:"note"`
+	Global    *bool  `json:"global"`
+	CreatedAt *int64 `json:"createdAt"`
+	UpdatedAt *int64 `json:"updatedAt"`
+	DeletedAt *int64 `json:"deletedAt"`
 }
 
 // dbBookNote is the DB-shaped note record; the client parses it with
 // transformBookNoteFromDB.
 type dbBookNote struct {
-	UserID    string  `json:"user_id"`
-	BookHash  string  `json:"book_hash"`
-	MetaHash  string  `json:"meta_hash,omitempty"`
-	ID        string  `json:"id"`
-	Type      string  `json:"type"`
-	CFI       string  `json:"cfi"`
-	XPointer0 string  `json:"xpointer0,omitempty"`
-	XPointer1 string  `json:"xpointer1,omitempty"`
-	Page      *int    `json:"page,omitempty"`
-	Text      string  `json:"text"`
-	Style     string  `json:"style,omitempty"`
-	Color     string  `json:"color,omitempty"`
-	Note      string  `json:"note"`
-	Global    *bool   `json:"global,omitempty"`
-	CreatedAt *int64  `json:"created_at"`
-	UpdatedAt *int64  `json:"updated_at"`
-	DeletedAt *int64  `json:"deleted_at"`
+	UserID    string `json:"user_id"`
+	BookHash  string `json:"book_hash"`
+	MetaHash  string `json:"meta_hash,omitempty"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	CFI       string `json:"cfi"`
+	XPointer0 string `json:"xpointer0,omitempty"`
+	XPointer1 string `json:"xpointer1,omitempty"`
+	Page      *int   `json:"page,omitempty"`
+	Text      string `json:"text"`
+	Style     string `json:"style,omitempty"`
+	Color     string `json:"color,omitempty"`
+	Note      string `json:"note"`
+	Global    *bool  `json:"global,omitempty"`
+	CreatedAt *int64 `json:"created_at"`
+	UpdatedAt *int64 `json:"updated_at"`
+	DeletedAt *int64 `json:"deleted_at"`
 }
 
 func noteToDB(p *pushedNote, uid string) *dbBookNote {

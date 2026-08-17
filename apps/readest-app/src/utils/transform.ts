@@ -95,6 +95,7 @@ export const transformBookToDB = (book: unknown, userId: string): DBBook => {
     readingStatusUpdatedAt,
     coverHash,
     coverUpdatedAt,
+    pinnedAt,
     metadata,
     metadataUpdatedAt,
     createdAt,
@@ -120,6 +121,7 @@ export const transformBookToDB = (book: unknown, userId: string): DBBook => {
       : null,
     cover_hash: coverHash ?? null,
     cover_updated_at: coverUpdatedAt ? new Date(coverUpdatedAt).toISOString() : null,
+    pinned_at: pinnedAt ? new Date(pinnedAt).toISOString() : null,
     source_title: sanitizeString(sourceTitle),
     metadata: metadata ? sanitizeString(JSON.stringify(metadata)) : null,
     metadata_updated_at: metadataUpdatedAt ? new Date(metadataUpdatedAt).toISOString() : null,
@@ -145,6 +147,7 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
     reading_status_updated_at,
     cover_hash,
     cover_updated_at,
+    pinned_at,
     source_title,
     metadata,
     metadata_updated_at,
@@ -170,6 +173,7 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
       : undefined,
     coverHash: cover_hash ?? null,
     coverUpdatedAt: cover_updated_at ? new Date(cover_updated_at).getTime() : null,
+    pinnedAt: pinned_at ? new Date(pinned_at).getTime() : undefined,
     sourceTitle: source_title,
     // The self-hosted sync server can hand back a record whose `metadata` is
     // still an object (or a corrupted string); never let it abort library load.

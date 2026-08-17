@@ -1,5 +1,6 @@
 {
   "On hold": "擱置中",
+  "More options": "更多選項",
   "Mark as On hold": "標示為擱置",
   "(detected)": "(檢測到)",
   "About Readest": "關於 Readest",
@@ -132,6 +133,9 @@
   "Override Book Layout": "覆蓋版面佈局",
   "Untitled Group": "無標題組",
   "Group Books": "分組書籍",
+  "Pin to Top": "置頂",
+  "Unpin from Top": "取消置頂",
+  "Pinned to Top": "已置頂",
   "Remove From Group": "從組中移除",
   "Create New Group": "創建新組",
   "Deselect Book": "取消選擇書籍",

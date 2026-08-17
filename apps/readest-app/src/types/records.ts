@@ -14,6 +14,7 @@ export interface DBBook {
   reading_status_updated_at?: string | null;
   cover_hash?: string | null;
   cover_updated_at?: string | null;
+  pinned_at?: string | null;
 
   metadata?: string | null;
   metadata_updated_at?: string | null;

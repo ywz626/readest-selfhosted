@@ -105,6 +105,12 @@ export interface Book {
   group?: string; // deprecated in favor of groupId and groupName
   groupId?: string;
   groupName?: string;
+  /**
+   * Epoch ms when the user pinned this book to the top of its parent folder.
+   * Absent = not pinned. Travels on the whole book row through the library
+   * sync channel; a pin/unpin bumps `updatedAt` so peers pick it up (LWW).
+   */
+  pinnedAt?: number;
   tags?: string[];
   coverImageUrl?: string | null;
   // Partial MD5 of the local cover.png. Content-addressed cover-change signal:

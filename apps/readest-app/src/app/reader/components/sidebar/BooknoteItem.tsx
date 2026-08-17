@@ -88,7 +88,7 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({
   // markdownParser.parse is heavy when called on every list scroll re-render
   // across hundreds of items. Cache by note text — note edits change
   // item.note and bust the cache automatically.
-  const noteHtml = useMemo(() => (note ? markdownParser.parse(note) : ''), [note]);
+  const noteHtml = useMemo(() => (note ? String(markdownParser.parse(note)) : ''), [note]);
 
   // dayjs().fromNow() reformats every render; cache per createdAt.
   const createdAtLabel = useMemo(() => dayjs(item.createdAt).fromNow(), [item.createdAt]);

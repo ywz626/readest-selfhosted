@@ -1,5 +1,6 @@
 {
   "On hold": "On hold",
+  "More options": "More options",
   "Mark as On hold": "Mark as On hold",
   "LXGW WenKai GB Screen": "LXGW WenKai SC",
   "LXGW WenKai TC": "LXGW WenKai TC",
@@ -103,5 +104,8 @@
   "Downloading {{count}} book(s)_one": "Downloading {{count}} book",
   "Downloading {{count}} book(s)_other": "Downloading {{count}} books",
   "Failed to download {{count}} book(s)_one": "Failed to download {{count}} book",
-  "Failed to download {{count}} book(s)_other": "Failed to download {{count}} books"
+  "Failed to download {{count}} book(s)_other": "Failed to download {{count}} books",
+  "Pin to Top": "Pin to Top",
+  "Unpin from Top": "Unpin from Top",
+  "Pinned to Top": "Pinned to Top"
 }

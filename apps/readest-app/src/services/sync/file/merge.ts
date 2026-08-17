@@ -172,6 +172,11 @@ export const mergeBookMetadata = (local: Book, remote: Book): Book => {
   // re-publishes) its stale copy. An unstamped-vs-unstamped tie keeps the
   // row-level result above (legacy behavior). Group membership and progress
   // stay on the row clock (#4942, #5067).
+  //
+  // pinnedAt also merges on this clock (not the row clock): pinning/unpinning
+  // bumps metadataUpdatedAt, so a peer's later page-turn progress bump (which
+  // dominates updatedAt) can't silently clear this device's pin. The raw
+  // assignment lets an unpin (undefined) propagate to peers too.
   const localMetaMs = local.metadataUpdatedAt ?? 0;
   const remoteMetaMs = remote.metadataUpdatedAt ?? 0;
   if (localMetaMs !== remoteMetaMs) {
@@ -179,6 +184,7 @@ export const mergeBookMetadata = (local: Book, remote: Book): Book => {
     merged.title = winner.title;
     merged.author = winner.author;
     merged.tags = winner.tags;
+    merged.pinnedAt = winner.pinnedAt;
     merged.metadata = winner.metadata ?? merged.metadata;
     merged.primaryLanguage = winner.primaryLanguage ?? merged.primaryLanguage;
     merged.metadataUpdatedAt = winner.metadataUpdatedAt;

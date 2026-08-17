@@ -1,6 +1,13 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
-import { MdCheckCircle, MdCheckCircleOutline, MdChevronRight, MdChevronLeft } from 'react-icons/md';
+import {
+  MdCheckCircle,
+  MdCheckCircleOutline,
+  MdChevronRight,
+  MdChevronLeft,
+  MdMoreVert,
+  MdPushPin,
+} from 'react-icons/md';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
@@ -14,9 +21,16 @@ interface GroupItemProps {
   group: BooksGroup;
   isSelectMode: boolean;
   groupSelected: boolean;
+  onMoreClick?: (e: React.MouseEvent) => void;
 }
 
-const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupSelected }) => {
+const GroupItem: React.FC<GroupItemProps> = ({
+  mode,
+  group,
+  isSelectMode,
+  groupSelected,
+  onMoreClick,
+}) => {
   const _ = useTranslation();
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
@@ -202,6 +216,15 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
             {group.displayName}
           </div>
         )}
+        {settings.libraryPinnedGroups?.[group.name] && (
+          <div
+            className='absolute right-1 top-1 z-10 rounded-full bg-base-100/80 p-0.5'
+            title={_('Pinned to Top')}
+            aria-label={_('Pinned to Top')}
+          >
+            <MdPushPin className='text-base-content/80' size={14} />
+          </div>
+        )}
         {groupSelected && (
           <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
         )}
@@ -213,6 +236,19 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
               <MdCheckCircleOutline className='fill-gray-300 drop-shadow-sm' />
             )}
           </div>
+        )}
+        {appService?.isMobileApp && !isSelectMode && onMoreClick && (
+          <button
+            aria-label={_('More options')}
+            className='absolute bottom-1 right-1 z-10 rounded-full bg-base-100/80 p-1.5'
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoreClick(e);
+            }}
+          >
+            <MdMoreVert className='text-base-content/80' size={18} />
+          </button>
         )}
       </div>
       {mode === 'grid' && (

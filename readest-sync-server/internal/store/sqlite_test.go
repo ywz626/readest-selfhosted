@@ -107,6 +107,74 @@ func TestSqliteBookFieldLevelLWW(t *testing.T) {
 	}
 }
 
+func TestSqliteBookPinnedAtClientWinsPreserved(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	// Device A: pins a book (metadata_updated_at bumped, pinned_at set).
+	deviceAUpdated := int64(1000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &deviceAUpdated, SyncedAt: "t1",
+		Data: []byte(`{"book_hash":"h1","title":"T","pinned_at":"2026-08-17T10:00:00Z","metadata_updated_at":"2026-08-17T10:00:00Z","updated_at":"2026-08-17T10:00:00Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Device B: pushes a progress-only update (newer updated_at, but no
+	// pinned_at field). Client wins the row — pinned_at must be preserved.
+	deviceBUpdated := int64(2000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &deviceBUpdated, SyncedAt: "t2",
+		Data: []byte(`{"book_hash":"h1","title":"T","progress":[1,10],"updated_at":"2026-08-17T11:00:00Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetBook(ctx, "owner", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("book not found")
+	}
+	// pinned_at from device A must survive the client-wins overwrite.
+	if !bytes.Contains(got.Data, []byte(`"pinned_at"`)) {
+		t.Fatalf("pinned_at was lost when client won row LWW: %s", got.Data)
+	}
+	if !bytes.Contains(got.Data, []byte(`"progress":[1,10]`)) {
+		t.Fatalf("client progress was not applied: %s", got.Data)
+	}
+}
+
+func TestSqliteBookPinnedAtServerWinsGrafted(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	// Device A: newer row overall, but has no pinned_at.
+	deviceAUpdated := int64(3000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &deviceAUpdated, SyncedAt: "t1",
+		Data: []byte(`{"book_hash":"h1","title":"T","progress":[1,10],"updated_at":"2026-08-17T12:00:00Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Device B: older row overall, but pins the book (newer metadata_updated_at).
+	deviceBUpdated := int64(1000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &deviceBUpdated, SyncedAt: "t2",
+		Data: []byte(`{"book_hash":"h1","title":"T","pinned_at":"2026-08-17T13:00:00Z","metadata_updated_at":"2026-08-17T13:00:00Z","updated_at":"2026-08-17T10:00:00Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetBook(ctx, "owner", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("book not found")
+	}
+	// Server row wins, but client's newer pinned_at should be grafted on.
+	if !bytes.Contains(got.Data, []byte(`"pinned_at":"2026-08-17T13:00:00Z"`)) {
+		t.Fatalf("client pinned_at was not grafted onto server row: %s", got.Data)
+	}
+}
+
 func TestSqliteNoteDeletionPropagation(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

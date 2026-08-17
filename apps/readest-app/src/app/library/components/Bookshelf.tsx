@@ -49,6 +49,7 @@ import {
   selectRecentShelfBooks,
   withReadingStatus,
   withTimeRemainingLast,
+  withPinnedShelfItemsFirst,
 } from '../utils/libraryUtils';
 import { eventDispatcher } from '@/utils/event';
 import { getLocalBookFilename } from '@/utils/book';
@@ -206,6 +207,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   const searchParams = useSearchParams();
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
+  const { setSettings, saveSettings } = useSettingsStore.getState();
   const { safeAreaInsets } = useThemeStore();
 
   const groupId = searchParams?.get('group') || '';
@@ -321,6 +323,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
 
   const sortedBookshelfItems = useMemo(() => {
     const sortOrderMultiplier = sortOrder === 'asc' ? 1 : -1;
+    const pinnedGroups = settings?.libraryPinnedGroups;
 
     // Separate into ungrouped books and groups
     const ungroupedBooks = currentBookshelfItems.filter((item): item is Book => 'format' in item);
@@ -342,7 +345,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
       ),
     );
     groups.forEach((group) => {
-      group.books.sort(withinGroupSorter);
+      group.books.sort(withPinnedShelfItemsFirst<Book>(pinnedGroups, withinGroupSorter));
     });
 
     // Sort ungrouped books - use within-group sorter if we're inside a group
@@ -357,12 +360,17 @@ const Bookshelf: React.FC<BookshelfProps> = ({
       thenSortAscending,
     );
     if (groupId && groupBy !== LibraryGroupByType.Group && groupBy !== LibraryGroupByType.None) {
-      ungroupedBooks.sort(withinGroupSorter);
+      ungroupedBooks.sort(withPinnedShelfItemsFirst<Book>(pinnedGroups, withinGroupSorter));
       // When inside a group, books are already sorted correctly — return directly
       // to avoid the merge sort below overriding the within-group sort order
       return ungroupedBooks;
     } else {
-      ungroupedBooks.sort(withTimeRemainingLast<Book>(sortBy, bookSorter));
+      ungroupedBooks.sort(
+        withPinnedShelfItemsFirst<Book>(
+          pinnedGroups,
+          withTimeRemainingLast<Book>(sortBy, bookSorter),
+        ),
+      );
     }
 
     // Merge groups and ungrouped books, then sort them together
@@ -370,32 +378,35 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     const groupSorter = createGroupSorter(sortBy, uiLanguage, groupBy);
 
     allItems.sort(
-      withTimeRemainingLast<Book | BooksGroup>(sortBy, (a, b) => {
-        const isAGroup = 'books' in a;
-        const isBGroup = 'books' in b;
+      withPinnedShelfItemsFirst<Book | BooksGroup>(
+        pinnedGroups,
+        withTimeRemainingLast<Book | BooksGroup>(sortBy, (a, b) => {
+          const isAGroup = 'books' in a;
+          const isBGroup = 'books' in b;
 
-        // If both are groups, use group sorter
-        if (isAGroup && isBGroup) {
-          return groupSorter(a, b) * sortOrderMultiplier;
-        }
+          // If both are groups, use group sorter
+          if (isAGroup && isBGroup) {
+            return groupSorter(a, b) * sortOrderMultiplier;
+          }
 
-        // If both are books, use book sorter
-        if (!isAGroup && !isBGroup) {
-          return bookSorter(a, b);
-        }
+          // If both are books, use book sorter
+          if (!isAGroup && !isBGroup) {
+            return bookSorter(a, b);
+          }
 
-        // For series/author groups: compare sort values to interleave properly
-        if (isAGroup && !isBGroup) {
-          const groupValue = getGroupSortValue(a, sortBy, groupBy);
-          const bookValue = getBookSortValue(b, sortBy);
-          return compareSortValues(groupValue, bookValue, uiLanguage) * sortOrderMultiplier;
-        } else if (!isAGroup && isBGroup) {
-          const bookValue = getBookSortValue(a, sortBy);
-          const groupValue = getGroupSortValue(b, sortBy, groupBy);
-          return compareSortValues(bookValue, groupValue, uiLanguage) * sortOrderMultiplier;
-        }
-        return 0;
-      }),
+          // For series/author groups: compare sort values to interleave properly
+          if (isAGroup && !isBGroup) {
+            const groupValue = getGroupSortValue(a, sortBy, groupBy);
+            const bookValue = getBookSortValue(b, sortBy);
+            return compareSortValues(groupValue, bookValue, uiLanguage) * sortOrderMultiplier;
+          } else if (!isAGroup && isBGroup) {
+            const bookValue = getBookSortValue(a, sortBy);
+            const groupValue = getGroupSortValue(b, sortBy, groupBy);
+            return compareSortValues(bookValue, groupValue, uiLanguage) * sortOrderMultiplier;
+          }
+          return 0;
+        }),
+      ),
     );
 
     return allItems;
@@ -408,6 +419,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     groupId,
     uiLanguage,
     currentBookshelfItems,
+    settings?.libraryPinnedGroups,
   ]);
 
   useEffect(() => {
@@ -658,6 +670,39 @@ const Bookshelf: React.FC<BookshelfProps> = ({
       await updateBooks(envConfig, [updatedBook]);
     },
     [envConfig, updateBooks],
+  );
+
+  // Toggle a book/group's pin-to-top within its parent folder. Books carry the
+  // pin on their own row (`pinnedAt`, synced as the whole book row via the
+  // `pinned_at` column); groups keep pins in the synced settings map
+  // (`libraryPinnedGroups`, whole-field LWW via the settings replica).
+  const handleTogglePin = useCallback(
+    async (item: Book | BooksGroup) => {
+      if ('format' in item) {
+        const book = item as Book;
+        const pinnedAt = book.pinnedAt ? undefined : Date.now();
+        // Bump metadataUpdatedAt so the pin/unpin travels on the metadata clock
+        // (#5438) rather than the progress-dominated row clock — otherwise a
+        // peer's later read could silently clear this device's pin.
+        const now = Date.now();
+        await updateBooks(envConfig, [
+          { ...book, pinnedAt, updatedAt: now, metadataUpdatedAt: now },
+        ]);
+        return;
+      }
+      const group = item as BooksGroup;
+      // Read the freshest state instead of the closure snapshot so a pin that
+      // arrived from a peer after this component last re-rendered isn't lost.
+      const latestSettings = useSettingsStore.getState().settings;
+      const current = latestSettings.libraryPinnedGroups ?? {};
+      const next = { ...current };
+      if (current[group.name]) delete next[group.name];
+      else next[group.name] = Date.now();
+      const nextSettings = { ...latestSettings, libraryPinnedGroups: next };
+      setSettings(nextSettings);
+      await saveSettings(envConfig, nextSettings);
+    },
+    [envConfig, updateBooks, setSettings, saveSettings],
   );
 
   const handleDeleteBooksIntent = (event: CustomEvent) => {
@@ -935,6 +980,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           handleShowDetailsBook={handleShowDetailsBook}
           handleLibraryNavigation={handleLibraryNavigation}
           handleUpdateReadingStatus={handleUpdateReadingStatus}
+          handleTogglePin={handleTogglePin}
           transferProgress={
             'hash' in item ? booksTransferProgress[(item as Book).hash] || null : null
           }
@@ -961,6 +1007,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
       handleShowDetailsBook,
       handleLibraryNavigation,
       handleUpdateReadingStatus,
+      handleTogglePin,
       showTimeRemaining,
     ],
   );

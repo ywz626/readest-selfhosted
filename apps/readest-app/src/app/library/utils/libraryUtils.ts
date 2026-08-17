@@ -305,6 +305,35 @@ export const withTimeRemainingLast =
     return compare(a, b);
   };
 
+/**
+ * Whether a shelf item (book or group) is pinned to the top of its parent
+ * folder. Books carry their pin as `pinnedAt` on the row; groups are derived
+ * from `book.groupName`, so their pin lives in the synced settings map keyed by
+ * `BooksGroup.name` (`pinnedGroups`).
+ */
+export const isShelfItemPinned = (
+  item: Book | BooksGroup,
+  pinnedGroups?: Record<string, number>,
+): boolean => ('books' in item ? !!pinnedGroups?.[item.name] : !!item.pinnedAt);
+
+/**
+ * Wrap a comparator so pinned shelf items always sort first and order among
+ * themselves by the underlying comparator — i.e. the active library sort. This
+ * must wrap *outside* compare-side wrappers like {@link withTimeRemainingLast},
+ * because a pinned item is always lifted to the top regardless of its sort key.
+ */
+export const withPinnedShelfItemsFirst =
+  <T extends Book | BooksGroup>(
+    pinnedGroups: Record<string, number> | undefined,
+    compare: (a: T, b: T) => number,
+  ) =>
+  (a: T, b: T): number => {
+    const aPinned = isShelfItemPinned(a, pinnedGroups);
+    const bPinned = isShelfItemPinned(b, pinnedGroups);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    return compare(a, b);
+  };
+
 const compareBookByKey = (a: Book, b: Book, sortBy: string, uiLanguage: string): number => {
   switch (sortBy) {
     case LibrarySortByType.Title: {
@@ -839,6 +868,7 @@ export const createGroupSorter =
 export type BookContextMenuItemId =
   | 'select'
   | 'group'
+  | 'pin'
   | 'markFinished'
   | 'markUnread'
   | 'markAbandoned'
@@ -966,6 +996,7 @@ export const getBookContextMenuItemIds = (
   opts?: { localSend?: boolean },
 ): BookContextMenuItemId[] => {
   const ids: BookContextMenuItemId[] = ['select', 'group'];
+  ids.push('pin');
   ids.push(book.readingStatus === 'finished' ? 'markUnread' : 'markFinished');
   if (book.readingStatus !== 'abandoned') ids.push('markAbandoned');
   // "Clear Status" is offered only when the book has an explicit status set.

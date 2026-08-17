@@ -98,21 +98,36 @@ func (s *SqliteStore) GetBook(ctx context.Context, userID, bookHash string) (*Bo
 
 // bookFieldLWW lists (timestamp field, value field) pairs that are merged on
 // their own updated_at timestamp when the incoming row loses at the row level.
+// pinned_at travels on the metadata clock: pin/unpin bumps metadataUpdatedAt,
+// so a peer's progress-only update (which doesn't touch metadataUpdatedAt)
+// cannot silently clear another device's pin.
 var bookFieldLWW = [][2]string{
 	{"reading_status_updated_at", "reading_status"},
 	{"cover_updated_at", "cover_hash"},
 	{"metadata_updated_at", "metadata"},
+	{"metadata_updated_at", "pinned_at"},
 }
 
 // mergeBookFields grafts the newer of the client's mutable fields onto the
 // server row. It returns whether any field was grafted and the max updated_at.
+// Used in the server-wins path: server data is the base, client's newer fields
+// are grafted on top.
 func mergeBookFields(server, client map[string]interface{}) (bool, string) {
 	merged := false
 	maxTS := ""
+	// Snapshot original server timestamps so that multiple value fields sharing
+	// the same clock (e.g. metadata_updated_at → metadata + pinned_at) all
+	// compare against the pre-merge value instead of the already-grafted one.
+	origServerTS := make(map[string]string)
+	for _, p := range bookFieldLWW {
+		if sf, ok := server[p[0]].(string); ok {
+			origServerTS[p[0]] = sf
+		}
+	}
 	for _, p := range bookFieldLWW {
 		tsField, valField := p[0], p[1]
 		cf, _ := client[tsField].(string)
-		sf, _ := server[tsField].(string)
+		sf := origServerTS[tsField]
 		if cf != "" && cf > sf {
 			server[tsField] = cf
 			if v, ok := client[valField]; ok {
@@ -127,6 +142,47 @@ func mergeBookFields(server, client map[string]interface{}) (bool, string) {
 		}
 	}
 	return merged, maxTS
+}
+
+// mergeBookFieldsClientWins is the counterpart of mergeBookFields for the
+// client-wins path. When the incoming row wins at the level (newer updated_at
+// or deleted_at), we still need to preserve server-side field values whose
+// timestamp is >= the client's. Without this, a peer's progress-only update
+// (which bumps updated_at but not metadataUpdatedAt) would silently drop
+// fields like pinned_at that were set by another device on the metadata clock.
+//
+// Parameters: client (the incoming row, mutated in place), server (the
+// existing row on disk, read-only).
+func mergeBookFieldsClientWins(client, server map[string]interface{}) bool {
+	merged := false
+	// Snapshot original server timestamps so that multiple value fields sharing
+	// the same clock (e.g. metadata_updated_at → metadata + pinned_at) all
+	// compare against the pre-merge value instead of the already-restored one.
+	origServerTS := make(map[string]string)
+	for _, p := range bookFieldLWW {
+		if sf, ok := server[p[0]].(string); ok {
+			origServerTS[p[0]] = sf
+		}
+	}
+	for _, p := range bookFieldLWW {
+		tsField, valField := p[0], p[1]
+		sf := origServerTS[tsField]
+		cf, _ := client[tsField].(string)
+		// Server's timestamp is present and >= client's → preserve server's field.
+		// ">" catches the case where the server has a strictly newer field (e.g.,
+		// a pin from another device); ">=" additionally handles the equal-
+		// timestamp case where the client simply never sent this field.
+		if sf != "" && sf >= cf {
+			client[tsField] = sf
+			if v, ok := server[valField]; ok {
+				client[valField] = v
+			} else {
+				delete(client, valField)
+			}
+			merged = true
+		}
+	}
+	return merged
 }
 
 // UpsertBook mirrors the official sync server's row- and field-level LWW:
@@ -149,12 +205,17 @@ func (s *SqliteStore) UpsertBook(ctx context.Context, b BookRow) error {
 		clientNewer = true
 	}
 	if clientNewer {
-		// Incoming row wins wholesale; preserve the server's created_at.
+		// Incoming row wins wholesale; preserve the server's created_at
+		// and any field-level values whose timestamp is >= the client's.
+		// This prevents a peer's progress-only update (which bumps updated_at
+		// but not metadataUpdatedAt) from silently dropping fields like
+		// pinned_at that were set by another device on the metadata clock.
 		var serverData, clientData map[string]interface{}
 		if json.Unmarshal(existing.Data, &serverData) == nil && json.Unmarshal(b.Data, &clientData) == nil {
 			if created, ok := serverData["created_at"]; ok {
 				clientData["created_at"] = created
 			}
+			mergeBookFieldsClientWins(clientData, serverData)
 			if bd, err := json.Marshal(clientData); err == nil {
 				b.Data = bd
 			}

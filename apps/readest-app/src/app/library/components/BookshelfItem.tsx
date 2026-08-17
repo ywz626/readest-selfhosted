@@ -139,6 +139,7 @@ interface BookshelfItemProps {
   handleShowDetailsBook: (book: Book) => void;
   handleLibraryNavigation: (targetGroup: string) => void;
   handleUpdateReadingStatus: (book: Book, status: ReadingStatus | undefined) => void;
+  handleTogglePin?: (item: Book | BooksGroup) => void;
   showTimeRemaining: boolean;
 }
 
@@ -158,6 +159,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   handleShowDetailsBook,
   handleLibraryNavigation,
   handleUpdateReadingStatus,
+  handleTogglePin,
   showTimeRemaining,
 }) => {
   const _ = useTranslation();
@@ -217,6 +219,12 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
             toggleSelection(book.hash);
           }
           handleGroupBooks();
+        },
+      },
+      pin: {
+        text: book.pinnedAt ? _('Unpin from Top') : _('Pin to Top'),
+        action: async () => {
+          handleTogglePin?.(book);
         },
       },
       markFinished: {
@@ -296,9 +304,15 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         },
       },
     };
-    return getBookContextMenuItemIds(book, {
-      localSend: isTauriAppPlatform() && isLocalSendEnabled(),
-    }).map((id) => itemOptions[id]);
+    return (
+      getBookContextMenuItemIds(book, {
+        localSend: isTauriAppPlatform() && isLocalSendEnabled(),
+      })
+        // `showInFinder` reveals the book's folder in the system file manager,
+        // which no mobile platform supports.
+        .filter((id) => !appService?.isMobileApp || id !== 'showInFinder')
+        .map((id) => itemOptions[id])
+    );
   };
 
   const buildGroupMenuItems = (group: BooksGroup): BookContextMenuItem[] => {
@@ -320,6 +334,12 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
             toggleSelection(group.id);
           }
           handleGroupBooks();
+        },
+      },
+      {
+        text: settings.libraryPinnedGroups?.[group.name] ? _('Unpin from Top') : _('Pin to Top'),
+        action: async () => {
+          handleTogglePin?.(group);
         },
       },
       {
@@ -374,7 +394,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
       cachedMenuRef.current = null;
       if (cached) releaseMenu(cached);
     };
-  }, [item, itemSelected, isSelectMode, settings.localBooksDir, _]);
+  }, [item, itemSelected, isSelectMode, settings.localBooksDir, settings.libraryPinnedGroups, _]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleSelectItem = useCallback(
@@ -410,11 +430,14 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleContextMenu = useCallback(
     throttle(async (position: { x: number; y: number }) => {
-      if (!appService?.hasContextMenu) return;
-      if (appService.isLinuxApp) {
+      // Mobile and Linux render the menu in-app: mobile has no native menu
+      // (the per-card ⋮ button routes here), and Linux dodges the Wayland
+      // popup flash (issue #5360).
+      if (appService?.isMobileApp || appService?.isLinuxApp) {
         setInAppMenuPosition(position);
         return;
       }
+      if (!appService?.hasContextMenu) return;
       const menu = await ensureMenu();
       // Pop up at an explicit position so keyboard invocation (ContextMenu /
       // Shift+F10) anchors the menu to the item instead of wherever the mouse
@@ -425,6 +448,16 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
     }, 100),
     [item, itemSelected, isSelectMode, settings.localBooksDir],
   );
+
+  // Mobile entry point for the context menu — the per-card ⋮ button. Anchor
+  // the in-app popup to the button instead of a synthetic pointer position,
+  // so it opens right where the thumb is.
+  const handleMoreClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setInAppMenuPosition({ x: rect.right - 8, y: rect.bottom + 4 });
+  }, []);
 
   const { pressing, handlers } = useLongPress(
     {
@@ -502,6 +535,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               handleBookDownload={handleBookDownload}
               showBookDetailsModal={showBookDetailsModal}
               showTimeRemaining={showTimeRemaining}
+              onMoreClick={appService?.isMobileApp ? handleMoreClick : undefined}
             />
           ) : (
             <GroupItem
@@ -509,6 +543,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               group={item}
               isSelectMode={isSelectMode}
               groupSelected={itemSelected}
+              onMoreClick={appService?.isMobileApp ? handleMoreClick : undefined}
             />
           )}
         </div>

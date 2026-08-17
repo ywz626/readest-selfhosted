@@ -434,6 +434,16 @@ export interface SystemSettings {
   /** Sort order of the secondary ("Then by") key, independent of `librarySortAscending` (#5119). */
   libraryThenSortAscending: boolean;
   libraryGroupBy: LibraryGroupByType;
+  /**
+   * Groups pinned to the top of their parent folder, keyed by `BooksGroup.name`
+   * (the group discriminator: for manual Group mode this is the full path e.g.
+   * "Literature/Fiction"; for Series/Author/Tag/Subject groupings it is the
+   * series/author/tag/subject value) with the epoch-ms pin time as value.
+   * Pinned groups order among themselves by the active library sort, then the
+   * rest of the shelf follows. Synced via the settings replica as a
+   * whole-field LWW value (`libraryPinnedGroups` whitelist entry).
+   */
+  libraryPinnedGroups?: Record<string, number>;
   libraryCoverFit: LibraryCoverFitType;
   libraryAutoColumns: boolean;
   libraryColumns: number;

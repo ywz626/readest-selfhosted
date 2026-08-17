@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
-import { MdCheckCircle, MdCheckCircleOutline } from 'react-icons/md';
+import { MdCheckCircle, MdCheckCircleOutline, MdMoreVert, MdPushPin } from 'react-icons/md';
 import {
   LiaCloudUploadAltSolid,
   LiaCloudDownloadAltSolid,
@@ -34,6 +34,7 @@ interface BookItemProps {
   handleBookDownload: (book: Book, options?: { redownload?: boolean; queued?: boolean }) => void;
   showBookDetailsModal: (book: Book) => void;
   showTimeRemaining: boolean;
+  onMoreClick?: (e: React.MouseEvent) => void;
 }
 
 const BookItem: React.FC<BookItemProps> = ({
@@ -47,6 +48,7 @@ const BookItem: React.FC<BookItemProps> = ({
   handleBookDownload,
   showBookDetailsModal,
   showTimeRemaining,
+  onMoreClick,
 }) => {
   const _ = useTranslation();
   const router = useRouter();
@@ -105,6 +107,15 @@ const BookItem: React.FC<BookItemProps> = ({
           )}
           onAspectRatioChange={setCoverAspect}
         />
+        {book.pinnedAt && (
+          <div
+            className='absolute right-1 top-1 z-10 rounded-full bg-base-100/80 p-0.5'
+            title={_('Pinned to Top')}
+            aria-label={_('Pinned to Top')}
+          >
+            <MdPushPin className='text-base-content/80' size={14} />
+          </div>
+        )}
         {bookSelected && (
           <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
         )}
@@ -116,6 +127,19 @@ const BookItem: React.FC<BookItemProps> = ({
               <MdCheckCircleOutline className='fill-gray-300 drop-shadow-sm' />
             )}
           </div>
+        )}
+        {appService?.isMobileApp && !isSelectMode && onMoreClick && (
+          <button
+            aria-label={_('More options')}
+            className='absolute bottom-1 right-1 z-10 rounded-full bg-base-100/80 p-1.5'
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoreClick(e);
+            }}
+          >
+            <MdMoreVert className='text-base-content/80' size={18} />
+          </button>
         )}
       </div>
       <div
