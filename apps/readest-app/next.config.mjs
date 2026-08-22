@@ -97,6 +97,7 @@ const nextConfig = {
           'highlight.js',
           'foliate-js',
           'marked',
+          'marked-katex-extension',
         ]),
   ],
   async rewrites() {

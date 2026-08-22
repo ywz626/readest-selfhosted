@@ -1,0 +1,39 @@
+diff --git a/src/index.ts b/src/index.ts
+index 2e9499eb4d1e09683d34cfb1951168c6ec93f301..8778a0ca2387631ba491c353f5ef79c842f926f9 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -62,9 +62,9 @@ function inlineKatex(options: MarkedKatexOptions, renderer: (token: KatexToken)
+       if (match) {
+         return {
+           type: 'inlineKatex',
+-          raw: match[0],
+-          text: match[2].trim(),
+-          displayMode: match[1].length === 2,
++          raw: match[0] ?? '',
++          text: match[2]?.trim() ?? '',
++          displayMode: match[1]?.length === 2,
+         };
+       }
+     },
+@@ -72,7 +72,7 @@ function inlineKatex(options: MarkedKatexOptions, renderer: (token: KatexToken)
+   };
+ }
+ 
+-function blockKatex(options: MarkedKatexOptions, renderer: (token: KatexToken) => string): TokenizerExtension & RendererExtension {
++function blockKatex(_options: MarkedKatexOptions, renderer: (token: KatexToken) => string): TokenizerExtension & RendererExtension {
+   return {
+     name: 'blockKatex',
+     level: 'block',
+@@ -81,9 +81,9 @@ function blockKatex(options: MarkedKatexOptions, renderer: (token: KatexToken) =
+       if (match) {
+         return {
+           type: 'blockKatex',
+-          raw: match[0],
+-          text: match[2].trim(),
+-          displayMode: match[1].length === 2,
++          raw: match[0] ?? '',
++          text: match[2]?.trim() ?? '',
++          displayMode: match[1]?.length === 2,
+         };
+       }
+     },

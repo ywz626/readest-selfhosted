@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -163,6 +164,104 @@ func TestBlobGetLegacyKey(t *testing.T) {
 	}
 	if rec.Body.String() != "legacy content" {
 		t.Fatalf("blob content mismatch: %q", rec.Body.String())
+	}
+}
+
+// TestBlobSpecialFilenamesRoundTrip exercises the full upload→download flow
+// with filenames containing non-ASCII (Chinese) characters, spaces and other
+// URL-significant characters. The client builds the blob URL by naive string
+// concatenation ("/api/storage/blob/" + key) and relies on the HTTP stack to
+// percent-encode it, so the server must decode consistently on both PUT and
+// GET or files with such names 404 on download.
+func TestBlobSpecialFilenamesRoundTrip(t *testing.T) {
+	ms, _ := store.NewSqliteStore(":memory:")
+	fs, _ := store.NewLocalDiskStore(t.TempDir())
+	h := NewStorageHandler(ms, fs, 1<<30)
+	svc := auth.NewService("c", "s")
+	tok, _ := svc.IssueToken("owner")
+
+	r := chi.NewRouter()
+	r.Put("/api/storage/blob/*", h.BlobPut)
+	r.Get("/api/storage/blob/*", h.BlobGet)
+	mw := middleware.RequireAuth(svc, r)
+
+	// Filenames as makeSafeFilename would produce them for Chinese titles.
+	cases := []struct {
+		name     string // raw filename
+		encoded  string // percent-encoded form as the HTTP client sends it
+	}{
+		{"三体.epub", "%E4%B8%89%E4%BD%93.epub"},
+		{"我的书 第一卷.epub", "%E6%88%91%E7%9A%84%E4%B9%A6%20%E7%AC%AC%E4%B8%80%E5%8D%B7.epub"},
+		{"Book (2nd Ed).epub", "Book%20%282nd%20Ed%29.epub"},
+		{"A&B+C!@~'`.epub", "A%26B%2BC%21%40~%27%60.epub"},
+	}
+	for _, c := range cases {
+		rawKey := "owner/Readest/Books/h1/" + c.name
+		encURL := "/api/storage/blob/owner/Readest/Books/h1/" + c.encoded
+		body := []byte("content-of-" + c.name)
+
+		// Upload via the API: POST /api/storage/upload gives back the uploadUrl.
+		upBody, _ := json.Marshal(map[string]interface{}{
+			"fileName": "Readest/Books/h1/" + c.name,
+			"bookHash": "h1",
+			"fileSize": len(body),
+		})
+		rec := httptest.NewRecorder()
+		wrapH(svc, h.Upload).ServeHTTP(rec, authed("POST", "/api/storage/upload", upBody, tok))
+		if rec.Code != 200 {
+			t.Fatalf("[%s] upload API got %d", c.name, rec.Code)
+		}
+		var upResp struct {
+			UploadURL string `json:"uploadUrl"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &upResp)
+		if upResp.UploadURL != "/api/storage/blob/"+rawKey {
+			t.Fatalf("[%s] uploadUrl = %q, want %q", c.name, upResp.UploadURL, "/api/storage/blob/"+rawKey)
+		}
+
+		// PUT the blob at the percent-encoded URL (what reqwest/fetch send).
+		rec2 := httptest.NewRecorder()
+		mw.ServeHTTP(rec2, authed("PUT", encURL, body, tok))
+		if rec2.Code != 200 {
+			t.Fatalf("[%s] blob PUT got %d: %s", c.name, rec2.Code, rec2.Body.String())
+		}
+
+		// Download URL lookup: GET /api/storage/download?fileKey=<encoded key>.
+		rec3 := httptest.NewRecorder()
+		wrapH(svc, h.Download).ServeHTTP(rec3, authed(
+			"GET", "/api/storage/download?fileKey="+url.QueryEscape(rawKey), nil, tok))
+		if rec3.Code != 200 {
+			t.Fatalf("[%s] download API got %d", c.name, rec3.Code)
+		}
+		var dlResp struct {
+			DownloadURL string `json:"downloadUrl"`
+		}
+		json.Unmarshal(rec3.Body.Bytes(), &dlResp)
+		if dlResp.DownloadURL != "/api/storage/blob/"+rawKey {
+			t.Fatalf("[%s] downloadUrl = %q, want %q", c.name, dlResp.DownloadURL, "/api/storage/blob/"+rawKey)
+		}
+
+		// GET the blob at the same encoded URL.
+		rec4 := httptest.NewRecorder()
+		mw.ServeHTTP(rec4, authed("GET", encURL, nil, tok))
+		if rec4.Code != 200 {
+			t.Fatalf("[%s] blob GET got %d: %s", c.name, rec4.Code, rec4.Body.String())
+		}
+		if rec4.Body.String() != string(body) {
+			t.Fatalf("[%s] blob content mismatch: %q", c.name, rec4.Body.String())
+		}
+
+		// Range GET (the multi-part download path) must also work.
+		rec5 := httptest.NewRecorder()
+		req := authed("GET", encURL, nil, tok)
+		req.Header.Set("Range", "bytes=0-3")
+		mw.ServeHTTP(rec5, req)
+		if rec5.Code != http.StatusPartialContent {
+			t.Fatalf("[%s] range GET got %d", c.name, rec5.Code)
+		}
+		if rec5.Body.String() != string(body[:4]) {
+			t.Fatalf("[%s] range content mismatch: %q", c.name, rec5.Body.String())
+		}
 	}
 }
 

@@ -9,6 +9,10 @@ import (
 type FileStore interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64) error
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
+	// GetRange returns a reader for the byte range [offset, offset+length) of
+	// the object plus its total size. A non-positive length reads through the
+	// end of the object. Used to serve HTTP Range requests.
+	GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error)
 	Delete(ctx context.Context, key string) error
 	// UploadURL returns a URL the client can PUT directly (for S3). For local, returns a local blob route.
 	UploadURL(key string) string

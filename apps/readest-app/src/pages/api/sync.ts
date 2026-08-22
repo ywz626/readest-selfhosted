@@ -115,7 +115,7 @@ export function resolveCoverMerge(
 
 type BookMetadataFields = Pick<
   DBBook,
-  'title' | 'author' | 'tags' | 'metadata' | 'metadata_updated_at'
+  'title' | 'author' | 'tags' | 'metadata' | 'metadata_updated_at' | 'pinned_at'
 >;
 
 const pickMetadataFields = (b: BookMetadataFields): BookMetadataFields => ({
@@ -124,6 +124,7 @@ const pickMetadataFields = (b: BookMetadataFields): BookMetadataFields => ({
   tags: b.tags,
   metadata: b.metadata,
   metadata_updated_at: b.metadata_updated_at,
+  pinned_at: b.pinned_at,
 });
 
 /**
@@ -161,7 +162,8 @@ export const bookMetadataChanged = (
   a.title !== b.title ||
   a.author !== b.author ||
   (a.metadata ?? null) !== (b.metadata ?? null) ||
-  JSON.stringify(a.tags ?? null) !== JSON.stringify(b.tags ?? null);
+  JSON.stringify(a.tags ?? null) !== JSON.stringify(b.tags ?? null) ||
+  (a.pinned_at ?? null) !== (b.pinned_at ?? null);
 
 const transformsToDB = {
   books: transformBookToDB,
@@ -612,6 +614,7 @@ export async function POST(req: NextRequest) {
               clientBook.tags = meta.tags;
               clientBook.metadata = meta.metadata;
               clientBook.metadata_updated_at = meta.metadata_updated_at;
+              clientBook.pinned_at = meta.pinned_at;
               toUpdate.push(clientBook);
             } else {
               // Only rewrite when a resolved field VALUE differs from the
@@ -644,6 +647,7 @@ export async function POST(req: NextRequest) {
                 propagated.tags = meta.tags;
                 propagated.metadata = meta.metadata;
                 propagated.metadata_updated_at = meta.metadata_updated_at;
+                propagated.pinned_at = meta.pinned_at;
                 toUpdate.push(propagated);
               } else {
                 batchAuthoritativeRecords.push(serverData);

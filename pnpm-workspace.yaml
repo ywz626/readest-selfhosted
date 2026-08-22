@@ -19,8 +19,7 @@ onlyBuiltDependencies:
   - sharp
 
 patchedDependencies:
-  '@ai-sdk/provider-utils@3.0.25': patches/@ai-sdk__provider-utils@3.0.25.patch
-  '@ai-sdk/provider-utils@4.0.27': patches/@ai-sdk__provider-utils@4.0.27.patch
+  marked-katex-extension@5.1.11: patches/marked-katex-extension@5.1.11.patch
   mdast-util-gfm-autolink-literal@2.0.1: patches/mdast-util-gfm-autolink-literal@2.0.1.patch
 
 overrides:
@@ -55,9 +54,10 @@ overrides:
   'brace-expansion@2': '>=2.1.4 <3'
   'brace-expansion@5': '>=5.0.9 <6'
   '@opentelemetry/core': '>=2.8.0'
-  '@babel/runtime': '>=7.26.10'
+  '@babel/runtime': '>=7.26.10 <8'
   '@babel/helpers': '>=7.26.10'
   '@babel/core': '>=7.29.6'
+  google-auth-library: '>=10.9.1'
   mdast-util-gfm-autolink-literal: 2.0.1
   uuid: '>=14.0.0'
   ws: '>=8.21.0'

@@ -465,7 +465,14 @@ class TransferManager {
         return;
       }
 
-      const errorMessage = error instanceof Error ? error.message : _('Unknown error');
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string' && error
+            ? error
+            : error && typeof error === 'object' && 'message' in error
+              ? String((error as { message: unknown }).message)
+              : _('Unknown error');
       const currentStore = useTransferStore.getState();
       const currentTransfer = currentStore.transfers[transfer.id];
 
@@ -509,7 +516,7 @@ class TransferManager {
 
             eventDispatcher.dispatch('toast', {
               type: 'error',
-              message: errorMessages[transfer.type],
+              message: `${errorMessages[transfer.type]}\n${errorMessage}`,
             });
           }
         }

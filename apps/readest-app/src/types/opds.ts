@@ -18,7 +18,10 @@ export const REL = {
   STREAM: 'http://vaemendis.net/opds-pse/stream',
 } as const;
 
-export const SYMBOL = FOLIATE_SYMBOL as { SUMMARY: symbol; CONTENT: symbol };
+export const SYMBOL = FOLIATE_SYMBOL as {
+  readonly SUMMARY: unique symbol;
+  readonly CONTENT: unique symbol;
+};
 
 export interface OPDSCatalog {
   id: string;

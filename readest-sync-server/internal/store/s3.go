@@ -85,6 +85,42 @@ func (s *S3Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return obj, nil
 }
 
+// GetRange returns a reader for [offset, offset+length) of the object plus its
+// total size. A non-positive length reads through the end of the object.
+func (s *S3Store) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error) {
+	st, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		return nil, 0, err
+	}
+	total := st.Size
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	if length <= 0 || offset+length > total {
+		length = total - offset
+	}
+	if length == 0 {
+		return io.NopCloser(strings.NewReader("")), total, nil
+	}
+	opts := minio.GetObjectOptions{}
+	if err := opts.SetRange(offset, offset+length-1); err != nil {
+		return nil, 0, err
+	}
+	obj, err := s.client.GetObject(ctx, s.bucket, key, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	// verify the object exists and the server honored the range
+	if _, err := obj.Stat(); err != nil {
+		_ = obj.Close()
+		return nil, 0, err
+	}
+	return obj, total, nil
+}
+
 func (s *S3Store) Delete(ctx context.Context, key string) error {
 	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 }

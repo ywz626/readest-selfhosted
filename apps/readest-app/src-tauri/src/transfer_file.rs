@@ -263,7 +263,47 @@ pub async fn download_file(
             .await;
     }
 
-    // Multi-part download with range access
+    // Multi-part download with range access.
+    //
+    // The file is pre-allocated with set_len(total), so a failed part MUST NOT
+    // be silently skipped — that would leave a run of zero bytes and report a
+    // "successful" download of a corrupted book. Each part is retried a few
+    // times, and any part that still fails aborts the whole download and deletes
+    // the partial file so the caller surfaces a real error.
+    const MAX_PART_RETRIES: u32 = 3;
+    const PART_RETRY_BASE_DELAY_MS: u64 = 200;
+
+    async fn download_part(
+        client: &reqwest::Client,
+        url: &str,
+        headers: &HashMap<String, String>,
+        start: u64,
+        end: u64,
+    ) -> Result<bytes::Bytes> {
+        let mut req = client.get(url).header("Range", format!("bytes={start}-{end}"));
+        for (key, value) in headers {
+            req = req.header(key, value);
+        }
+        let resp = req.send().await?;
+        // Only a 206 Partial Content is acceptable here. A 200 carrying the
+        // whole body would be written at this part's offset and corrupt the file.
+        if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            return Err(Error::HttpErrorCode(
+                resp.status().as_u16(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+        let bytes = resp.bytes().await?;
+        if bytes.len() as u64 != end - start + 1 {
+            return Err(Error::ContentLength(format!(
+                "part {start}-{end}: expected {} bytes, got {}",
+                end - start + 1,
+                bytes.len()
+            )));
+        }
+        Ok(bytes)
+    }
+
     let part_count = total.div_ceil(PART_SIZE);
     let file = File::create(file_path).await?;
     file.set_len(total).await?;
@@ -271,8 +311,8 @@ pub async fn download_file(
     let file = Arc::new(tokio::sync::Mutex::new(file));
     let progress = Arc::new(tokio::sync::Mutex::new(TransferStats::default()));
 
-    stream::iter(0..part_count)
-        .for_each_concurrent(8, |i| {
+    let results: Vec<Result<()>> = stream::iter(0..part_count)
+        .map(|i| {
             let client = client.clone();
             let file = Arc::clone(&file);
             let progress = Arc::clone(&progress);
@@ -283,47 +323,53 @@ pub async fn download_file(
             async move {
                 let start = i * PART_SIZE;
                 let end = min(start + PART_SIZE - 1, total - 1);
-                let range_header = format!("bytes={start}-{end}");
 
-                let mut req = client.get(&url).header("Range", range_header);
-                for (key, value) in headers {
-                    req = req.header(key, value);
-                }
-
-                let resp = match req.send().await {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-
-                if !resp.status().is_success()
-                    && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT
-                {
-                    return;
-                }
-
-                let bytes = match resp.bytes().await {
-                    Ok(b) => b,
-                    Err(_) => return,
-                };
-
-                {
-                    let mut f = file.lock().await;
-                    f.seek(std::io::SeekFrom::Start(start)).await.unwrap();
-                    f.write_all(&bytes).await.unwrap();
-                }
-
-                {
-                    let mut stat = progress.lock().await;
-                    stat.record_chunk_transfer(bytes.len());
-                    let _ = on_progress.send(ProgressPayload {
-                        progress: stat.total_transferred,
-                        total,
-                        transfer_speed: stat.transfer_speed,
-                    });
+                let mut attempt = 0u32;
+                loop {
+                    match download_part(&client, &url, &headers, start, end).await {
+                        Ok(bytes) => {
+                            {
+                                let mut f = file.lock().await;
+                                f.seek(std::io::SeekFrom::Start(start)).await?;
+                                f.write_all(&bytes).await?;
+                            }
+                            {
+                                let mut stat = progress.lock().await;
+                                stat.record_chunk_transfer(bytes.len());
+                                let _ = on_progress.send(ProgressPayload {
+                                    progress: stat.total_transferred,
+                                    total,
+                                    transfer_speed: stat.transfer_speed,
+                                });
+                            }
+                            return Ok(());
+                        }
+                        Err(err) => {
+                            attempt += 1;
+                            if attempt >= MAX_PART_RETRIES {
+                                return Err(err);
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                PART_RETRY_BASE_DELAY_MS * attempt as u64,
+                            ))
+                            .await;
+                        }
+                    }
                 }
             }
         })
+        .buffer_unordered(8)
+        .collect::<Vec<_>>()
         .await;
+
+    // Any part that still fails after its retries means the file on disk is
+    // incomplete — delete it and report the error instead of returning a
+    // "successful" broken download.
+    if let Some(err) = results.into_iter().find_map(std::result::Result::err) {
+        drop(file);
+        let _ = tokio::fs::remove_file(file_path).await;
+        return Err(err);
+    }
 
     Ok(resp_headers)
 }

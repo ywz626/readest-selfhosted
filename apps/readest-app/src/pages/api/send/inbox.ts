@@ -93,7 +93,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const payloadKey = `inbox/${user.id}/${row.id}/page.html`;
     try {
-      await putObject(payloadKey, bytes.buffer, 'text/html; charset=utf-8', SEND_INBOX_BUCKET);
+      await putObject(
+        payloadKey,
+        bytes.buffer as ArrayBuffer,
+        'text/html; charset=utf-8',
+        SEND_INBOX_BUCKET,
+      );
     } catch (err) {
       // Roll back the inbox row so we never leave a `pending` item the
       // drainer would only fail on.

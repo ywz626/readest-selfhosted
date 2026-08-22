@@ -55,6 +55,48 @@ func (f *LocalDiskStore) Get(ctx context.Context, key string) (io.ReadCloser, er
 	return os.Open(p)
 }
 
+// limitedReadCloser wraps a range-limited reader and closes the underlying file.
+type limitedReadCloser struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (l *limitedReadCloser) Close() error { return l.closer.Close() }
+
+// GetRange returns a reader for [offset, offset+length) of the object plus its
+// total size. A non-positive length reads through the end of the object.
+func (f *LocalDiskStore) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error) {
+	p, err := f.safePath(key)
+	if err != nil {
+		return nil, 0, err
+	}
+	file, err := os.Open(p)
+	if err != nil {
+		return nil, 0, err
+	}
+	st, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, 0, err
+	}
+	total := st.Size()
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if length > 0 && offset+length < end {
+		end = offset + length
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		file.Close()
+		return nil, 0, err
+	}
+	return &limitedReadCloser{Reader: io.LimitReader(file, end-offset), closer: file}, total, nil
+}
+
 func (f *LocalDiskStore) Delete(ctx context.Context, key string) error {
 	p, err := f.safePath(key)
 	if err != nil {

@@ -125,7 +125,7 @@ describe('TxtToEpubConverter', () => {
   it('detectEncoding should probe UTF-8 with sampled buffers only', () => {
     const converter = new TxtToEpubConverter() as unknown as TxtConverterPrivateAPI;
     const fullSize = 220 * 1024;
-    const buffer = new TextEncoder().encode('a'.repeat(fullSize)).buffer;
+    const buffer = new TextEncoder().encode('a'.repeat(fullSize)).buffer as ArrayBuffer;
 
     const OriginalTextDecoder = globalThis.TextDecoder;
     const decodeSizes: number[] = [];

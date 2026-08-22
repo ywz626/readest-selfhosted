@@ -135,12 +135,22 @@ export const useBookTransferActions = (
             });
           }
           return true;
-        } catch {
+        } catch (error) {
           if (!silent) {
+            const detail =
+              error instanceof Error
+                ? error.message
+                : typeof error === 'string' && error
+                  ? error
+                  : '';
             eventDispatcher.dispatch('toast', {
-              message: _('Failed to download book: {{title}}', {
-                title: book.title,
-              }),
+              message: detail
+                ? `${_('Failed to download book: {{title}}', {
+                    title: book.title,
+                  })}\n${detail}`
+                : _('Failed to download book: {{title}}', {
+                    title: book.title,
+                  }),
               type: 'error',
             });
           }
