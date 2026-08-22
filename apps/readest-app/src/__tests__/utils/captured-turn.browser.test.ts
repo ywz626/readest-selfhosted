@@ -1174,34 +1174,37 @@ describe('CapturedPageTurn (browser)', () => {
     expect(host.querySelector('canvas')).toBeNull();
   });
 
-  it.each([
-    'curl',
-    'slide',
-  ] as CapturedTurnStyle[])('notifies the host under the flat overlay when a %s drag is cancelled', async (style) => {
-    const onCancelled = vi.fn(async (cancelledStyle: CapturedTurnStyle) => {
-      expect(cancelledStyle).toBe(style);
-      expect(navigate).toHaveBeenNthCalledWith(2, false);
-      expect(host.querySelector('canvas')).not.toBeNull();
-      if (cancelledStyle === 'slide') {
-        expect(new DOMMatrixReadOnly(getComputedStyle(slideSheet()).transform).e).toBeCloseTo(0, 5);
-      }
-    });
-    const cancellable = new CapturedPageTurn({
-      getHostElement: () => host,
-      getContentRect: contentRect,
-      capture,
-      onCancelled,
-      navigate,
-    });
+  it.each(['curl', 'slide'] as CapturedTurnStyle[])(
+    'notifies the host under the flat overlay when a %s drag is cancelled',
+    async (style) => {
+      const onCancelled = vi.fn(async (cancelledStyle: CapturedTurnStyle) => {
+        expect(cancelledStyle).toBe(style);
+        expect(navigate).toHaveBeenNthCalledWith(2, false);
+        expect(host.querySelector('canvas')).not.toBeNull();
+        if (cancelledStyle === 'slide') {
+          expect(new DOMMatrixReadOnly(getComputedStyle(slideSheet()).transform).e).toBeCloseTo(
+            0,
+            5,
+          );
+        }
+      });
+      const cancellable = new CapturedPageTurn({
+        getHostElement: () => host,
+        getContentRect: contentRect,
+        capture,
+        onCancelled,
+        navigate,
+      });
 
-    expect(await cancellable.beginDrag(true, false, style)).toBe(true);
-    cancellable.moveDrag(0.3, 0.5);
-    await cancellable.endDrag(false);
+      expect(await cancellable.beginDrag(true, false, style)).toBe(true);
+      cancellable.moveDrag(0.3, 0.5);
+      await cancellable.endDrag(false);
 
-    expect(onCancelled).toHaveBeenCalledOnce();
-    expect(host.querySelector('canvas')).toBeNull();
-    cancellable.dispose();
-  });
+      expect(onCancelled).toHaveBeenCalledOnce();
+      expect(host.querySelector('canvas')).toBeNull();
+      cancellable.dispose();
+    },
+  );
 
   it('scrubs a slide drag and cleans up on commit', async () => {
     const began = await controller.beginDrag(true, false, 'slide');
@@ -1259,50 +1262,48 @@ describe('CapturedPageTurn (browser)', () => {
     },
     { progress: 0.5, velocity: -1.5, commit: true, expectedDuration: 500 },
     { progress: 0.5, velocity: -1.5, commit: false, expectedDuration: 250 },
-  ] as const)('settles Slide from $progress toward commit=$commit on WAAPI at the bounded momentum duration', async ({
-    progress,
-    velocity,
-    commit,
-    expectedDuration,
-  }) => {
-    const paced = new CapturedPageTurn(
-      { getHostElement: () => host, getContentRect: contentRect, capture, navigate },
-      { duration: 1000 },
-    );
-    expect(await paced.beginDrag(true, false, 'slide')).toBe(true);
-    paced.moveDrag(progress, 0.5);
-    const sheet = slideSheet();
-    const nativeAnimate = sheet.animate.bind(sheet);
-    const animate = vi.spyOn(sheet, 'animate').mockImplementation((keyframes, options) => {
-      const animation = nativeAnimate(keyframes, options);
-      animation.pause();
-      return animation;
-    });
-    const raf = vi.spyOn(window, 'requestAnimationFrame');
-    try {
-      const ending = paced.endDrag(commit, velocity);
-      await vi.waitFor(() => expect(animate).toHaveBeenCalledOnce());
-      const animation = animate.mock.results[0]!.value;
-      const effect = animation.effect as KeyframeEffect;
+  ] as const)(
+    'settles Slide from $progress toward commit=$commit on WAAPI at the bounded momentum duration',
+    async ({ progress, velocity, commit, expectedDuration }) => {
+      const paced = new CapturedPageTurn(
+        { getHostElement: () => host, getContentRect: contentRect, capture, navigate },
+        { duration: 1000 },
+      );
+      expect(await paced.beginDrag(true, false, 'slide')).toBe(true);
+      paced.moveDrag(progress, 0.5);
+      const sheet = slideSheet();
+      const nativeAnimate = sheet.animate.bind(sheet);
+      const animate = vi.spyOn(sheet, 'animate').mockImplementation((keyframes, options) => {
+        const animation = nativeAnimate(keyframes, options);
+        animation.pause();
+        return animation;
+      });
+      const raf = vi.spyOn(window, 'requestAnimationFrame');
+      try {
+        const ending = paced.endDrag(commit, velocity);
+        await vi.waitFor(() => expect(animate).toHaveBeenCalledOnce());
+        const animation = animate.mock.results[0]!.value;
+        const effect = animation.effect as KeyframeEffect;
 
-      expect(Number(effect.getTiming().duration)).toBeCloseTo(expectedDuration, 5);
-      expect(effect.getTiming().easing).toBe('linear');
-      const keyframes = effect.getKeyframes();
-      expect(keyframes).toHaveLength(33);
-      expect(keyframes[0]!.offset).toBe(0);
-      expect(keyframes.at(-1)!.offset).toBe(1);
-      expect(raf).not.toHaveBeenCalled();
+        expect(Number(effect.getTiming().duration)).toBeCloseTo(expectedDuration, 5);
+        expect(effect.getTiming().easing).toBe('linear');
+        const keyframes = effect.getKeyframes();
+        expect(keyframes).toHaveLength(33);
+        expect(keyframes[0]!.offset).toBe(0);
+        expect(keyframes.at(-1)!.offset).toBe(1);
+        expect(raf).not.toHaveBeenCalled();
 
-      animation.finish();
-      await ending;
-      expect(paced.active).toBe(false);
-      if (!commit) expect(navigate).toHaveBeenLastCalledWith(false);
-    } finally {
-      paced.dispose();
-      animate.mockRestore();
-      raf.mockRestore();
-    }
-  });
+        animation.finish();
+        await ending;
+        expect(paced.active).toBe(false);
+        if (!commit) expect(navigate).toHaveBeenLastCalledWith(false);
+      } finally {
+        paced.dispose();
+        animate.mockRestore();
+        raf.mockRestore();
+      }
+    },
+  );
 
   it('falls back to requestAnimationFrame when Slide WAAPI is unavailable', async () => {
     const paced = new CapturedPageTurn(

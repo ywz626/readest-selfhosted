@@ -206,28 +206,26 @@ describe('buildLookupTool', () => {
   });
 
   describe('status passthrough', () => {
-    it.each([
-      'not_indexed',
-      'empty_index',
-      'stale_index',
-      'degraded',
-    ] as const)('forwards status=%s with a human-readable hint and empty passages', async (status) => {
-      const retriever = fakeRetriever(async () => ({
-        passages: [],
-        status,
-        reason: status === 'stale_index' ? 'model changed' : undefined,
-      }));
-      const tool = buildLookupTool({
-        bookHash: 'bk1',
-        retriever,
-        activeEmbeddingModel: model,
-        turnState,
-      });
-      const res = await runExecute(tool, { query: 'q', topK: 3 });
-      expect(res.status).toBe(status);
-      expect(res.passages).toEqual([]);
-      expect(res.hint).toBeTruthy();
-    });
+    it.each(['not_indexed', 'empty_index', 'stale_index', 'degraded'] as const)(
+      'forwards status=%s with a human-readable hint and empty passages',
+      async (status) => {
+        const retriever = fakeRetriever(async () => ({
+          passages: [],
+          status,
+          reason: status === 'stale_index' ? 'model changed' : undefined,
+        }));
+        const tool = buildLookupTool({
+          bookHash: 'bk1',
+          retriever,
+          activeEmbeddingModel: model,
+          turnState,
+        });
+        const res = await runExecute(tool, { query: 'q', topK: 3 });
+        expect(res.status).toBe(status);
+        expect(res.passages).toEqual([]);
+        expect(res.hint).toBeTruthy();
+      },
+    );
   });
 });
 

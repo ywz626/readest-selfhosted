@@ -565,36 +565,35 @@ describe('Page turn styles (browser)', () => {
     { style: 'slide', speed: 0.9, expectedRate: 1.875 },
     { style: 'slide', speed: 1.5, expectedRate: 2 },
     { style: 'curl', speed: 1.5, expectedRate: 1.5 },
-  ])('settles a $style release at $expectedRate× for a $speed px/ms flick', async ({
-    style,
-    speed,
-    expectedRate,
-  }) => {
-    await setup(ltrBook, style);
-    const phases: string[] = [];
-    paginator.addEventListener('layered-turn-state', ((event: CustomEvent) => {
-      phases.push(event.detail.phase);
-    }) as EventListener);
+  ])(
+    'settles a $style release at $expectedRate× for a $speed px/ms flick',
+    async ({ style, speed, expectedRate }) => {
+      await setup(ltrBook, style);
+      const phases: string[] = [];
+      paginator.addEventListener('layered-turn-state', ((event: CustomEvent) => {
+        phases.push(event.detail.phase);
+      }) as EventListener);
 
-    const startX = 700;
-    const startTime = 100;
-    const sampleDuration = 240;
-    const releaseX = startX - speed * sampleDuration;
-    fireTouch('touchstart', startX, 300, startTime);
-    fireTouch('touchmove', releaseX, 300, startTime + sampleDuration);
-    await vi.waitFor(() => expect(phases).toContain('ready'));
-    const animations = scrubbedAnimations();
-    expect(animations.length).toBeGreaterThan(0);
+      const startX = 700;
+      const startTime = 100;
+      const sampleDuration = 240;
+      const releaseX = startX - speed * sampleDuration;
+      fireTouch('touchstart', startX, 300, startTime);
+      fireTouch('touchmove', releaseX, 300, startTime + sampleDuration);
+      await vi.waitFor(() => expect(phases).toContain('ready'));
+      const animations = scrubbedAnimations();
+      expect(animations.length).toBeGreaterThan(0);
 
-    fireTouch('touchend', releaseX, 300, startTime + sampleDuration);
-    await vi.waitFor(() => {
-      for (const animation of animations) {
-        expect(Math.abs(animation.playbackRate)).toBeCloseTo(expectedRate, 5);
-      }
-    });
-    await vi.waitFor(() => expect(phases.at(-1)).toBe('finished'), { timeout: 2000 });
-    expect(phases).not.toContain('cancelled');
-  });
+      fireTouch('touchend', releaseX, 300, startTime + sampleDuration);
+      await vi.waitFor(() => {
+        for (const animation of animations) {
+          expect(Math.abs(animation.playbackRate)).toBeCloseTo(expectedRate, 5);
+        }
+      });
+      await vi.waitFor(() => expect(phases.at(-1)).toBe('finished'), { timeout: 2000 });
+      expect(phases).not.toContain('cancelled');
+    },
+  );
 
   it('combines sub-flick speed with distance to commit a Slide', async () => {
     await setup(ltrBook, 'slide');

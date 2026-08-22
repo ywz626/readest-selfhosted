@@ -135,19 +135,18 @@ describe('/api/send/address — plan gate', () => {
     expect(supabaseTouched).not.toHaveBeenCalled();
   });
 
-  test.each<UserPlan>([
-    'plus',
-    'pro',
-    'purchase',
-  ])('lets %s users through the gate', async (plan) => {
-    getUserProfilePlanMock.mockReturnValue(plan);
-    const res = makeRes();
-    await addressHandler(makeReq('GET'), res as unknown as NextApiResponse);
-    // The gate is past — Supabase was touched. We don't care here what
-    // the eventual response is (the Supabase mock returns no row).
-    expect(supabaseTouched).toHaveBeenCalled();
-    expect(res._status).not.toBe(403);
-  });
+  test.each<UserPlan>(['plus', 'pro', 'purchase'])(
+    'lets %s users through the gate',
+    async (plan) => {
+      getUserProfilePlanMock.mockReturnValue(plan);
+      const res = makeRes();
+      await addressHandler(makeReq('GET'), res as unknown as NextApiResponse);
+      // The gate is past — Supabase was touched. We don't care here what
+      // the eventual response is (the Supabase mock returns no row).
+      expect(supabaseTouched).toHaveBeenCalled();
+      expect(res._status).not.toBe(403);
+    },
+  );
 });
 
 describe('/api/send/senders — plan gate', () => {

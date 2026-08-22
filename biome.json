@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
     "ignoreUnknown": true,
@@ -69,9 +69,9 @@
       "!apps/readest-app/i18next-scanner.config.cjs"
     ],
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "a11y": {
-        "recommended": true,
+        "preset": "recommended",
         "useKeyWithClickEvents": "off",
         "useKeyWithMouseEvents": "off",
         "noSvgWithoutTitle": "off",
@@ -112,18 +112,16 @@
         "noUndeclaredVariables": "off",
         "noEmptyCharacterClassInRegex": "off",
         "useParseIntRadix": "off",
-        "noEmptyPattern": "off"
-      },
-      "nursery": {
+        "noEmptyPattern": "off",
         "noBeforeInteractiveScriptOutsideDocument": "warn",
-        "noDuplicateEnumValues": "error",
-        "noSyncScripts": "warn",
         "useInlineScriptId": "error"
       },
+      "nursery": {},
       "performance": {
         "noImgElement": "off",
         "noUnwantedPolyfillio": "warn",
-        "useGoogleFontPreconnect": "warn"
+        "useGoogleFontPreconnect": "warn",
+        "noSyncScripts": "warn"
       },
       "security": {
         "noBlankTarget": "off",
@@ -162,7 +160,8 @@
         "useIterableCallbackReturn": "off",
         "noGlobalIsNan": "off",
         "noConfusingVoidType": "off",
-        "noConstEnum": "off"
+        "noConstEnum": "off",
+        "noDuplicateEnumValues": "error"
       }
     }
   },

@@ -235,25 +235,24 @@ describe('yandex-translate proxy route', () => {
     expect(fetchSpy.mock.calls[0]![1].signal.aborted).toBe(true);
   });
 
-  it.each([
-    '-100',
-    'abc',
-    'Infinity',
-  ])('ignores invalid timeout env value %s instead of breaking requests', async (envValue) => {
-    vi.stubEnv('YANDEX_UPSTREAM_TIMEOUT_MS', envValue);
-    fetchSpy.mockImplementation((_url: string, init: RequestInit) => {
-      if (init.signal?.aborted) {
-        return Promise.reject(new DOMException('The operation was aborted', 'AbortError'));
-      }
-      return Promise.resolve(
-        new Response('{"code":200}', {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      );
-    });
+  it.each(['-100', 'abc', 'Infinity'])(
+    'ignores invalid timeout env value %s instead of breaking requests',
+    async (envValue) => {
+      vi.stubEnv('YANDEX_UPSTREAM_TIMEOUT_MS', envValue);
+      fetchSpy.mockImplementation((_url: string, init: RequestInit) => {
+        if (init.signal?.aborted) {
+          return Promise.reject(new DOMException('The operation was aborted', 'AbortError'));
+        }
+        return Promise.resolve(
+          new Response('{"code":200}', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      });
 
-    const res = await POST(makeReq('endpoint=session'));
-    expect(res.status).toBe(200);
-  });
+      const res = await POST(makeReq('endpoint=session'));
+      expect(res.status).toBe(200);
+    },
+  );
 });

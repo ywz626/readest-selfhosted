@@ -134,22 +134,22 @@ describe('EPUB hrefs that percent-encode reserved characters (#5097)', () => {
   // `relativeTo.includes(':')`, so `new URL()` threw and no image resolved. It
   // was patched by exempting bases that start with "OEBPS", which left books
   // under any other root still broken. A real scheme test fixes both roots.
-  it.each([
-    'OEBPS',
-    'Text',
-  ])('resolves images inside a ":" chapter under %s/ (#346)', async (root) => {
-    const { sections } = await openEpub({
-      'META-INF/container.xml': CONTAINER.replace('OEBPS/content.opf', `${root}/content.opf`),
-      [`${root}/content.opf`]: opf([{ id: 'chapter1', href: 'Text/ch:1.html' }]),
-      [`${root}/toc.ncx`]: ncx([{ label: 'Chapter 1', src: 'Text/ch:1.html' }]),
-      [`${root}/Text/ch:1.html`]: chapter('Chapter 1'),
-    });
+  it.each(['OEBPS', 'Text'])(
+    'resolves images inside a ":" chapter under %s/ (#346)',
+    async (root) => {
+      const { sections } = await openEpub({
+        'META-INF/container.xml': CONTAINER.replace('OEBPS/content.opf', `${root}/content.opf`),
+        [`${root}/content.opf`]: opf([{ id: 'chapter1', href: 'Text/ch:1.html' }]),
+        [`${root}/toc.ncx`]: ncx([{ label: 'Chapter 1', src: 'Text/ch:1.html' }]),
+        [`${root}/Text/ch:1.html`]: chapter('Chapter 1'),
+      });
 
-    expect(sections[0]!.id).toBe(`${root}/Text/ch:1.html`);
-    // the image hrefs that went missing in #346
-    expect(sections[0]!.resolveHref('../Images/pic.jpg')).toBe(`${root}/Images/pic.jpg`);
-    expect(sections[0]!.resolveHref('pic.jpg')).toBe(`${root}/Text/pic.jpg`);
-  });
+      expect(sections[0]!.id).toBe(`${root}/Text/ch:1.html`);
+      // the image hrefs that went missing in #346
+      expect(sections[0]!.resolveHref('../Images/pic.jpg')).toBe(`${root}/Images/pic.jpg`);
+      expect(sections[0]!.resolveHref('pic.jpg')).toBe(`${root}/Text/pic.jpg`);
+    },
+  );
 
   it('loads chapters for the other reserved characters decodeURI leaves encoded', async () => {
     // `,` and `:` were previously hand-patched one at a time; the rest of the

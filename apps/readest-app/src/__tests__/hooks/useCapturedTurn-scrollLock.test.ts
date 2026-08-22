@@ -963,51 +963,51 @@ describe('useCapturedTurn scroll-lock gate', () => {
     expect(h.controller.beginDrag).toHaveBeenCalled();
   });
 
-  test.each([
-    'curl',
-    'slide',
-  ] as const)('hides live toolbar without transitions once the %s snapshot covers it', async (style) => {
-    const gridCell = document.createElement('div');
-    gridCell.id = 'gridcell-book-1';
-    document.body.appendChild(gridCell);
-    h.setHoveredBookKey.mockImplementationOnce(() => {
+  test.each(['curl', 'slide'] as const)(
+    'hides live toolbar without transitions once the %s snapshot covers it',
+    async (style) => {
+      const gridCell = document.createElement('div');
+      gridCell.id = 'gridcell-book-1';
+      document.body.appendChild(gridCell);
+      h.setHoveredBookKey.mockImplementationOnce(() => {
+        expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
+      });
+      renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
+
+      await act(async () => {
+        await h.controllerHost?.onBeforeCapture?.(style);
+        await h.controllerHost?.onCovered?.(style);
+      });
+
+      expect(h.setHoveredBookKey).toHaveBeenCalledWith(null);
       expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
-    });
-    renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
+      await act(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
+    },
+  );
 
-    await act(async () => {
-      await h.controllerHost?.onBeforeCapture?.(style);
-      await h.controllerHost?.onCovered?.(style);
-    });
+  test.each(['curl', 'slide'] as const)(
+    'restores a previously visible toolbar when a %s turn is cancelled',
+    async (style) => {
+      const gridCell = document.createElement('div');
+      gridCell.id = 'gridcell-book-1';
+      document.body.appendChild(gridCell);
+      renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
 
-    expect(h.setHoveredBookKey).toHaveBeenCalledWith(null);
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
-    await act(
-      () =>
-        new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }),
-    );
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
-  });
+      await act(async () => {
+        await h.controllerHost?.onBeforeCapture?.(style);
+        await h.controllerHost?.onCovered?.(style);
+        await h.controllerHost?.onCancelled?.(style);
+      });
 
-  test.each([
-    'curl',
-    'slide',
-  ] as const)('restores a previously visible toolbar when a %s turn is cancelled', async (style) => {
-    const gridCell = document.createElement('div');
-    gridCell.id = 'gridcell-book-1';
-    document.body.appendChild(gridCell);
-    renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
-
-    await act(async () => {
-      await h.controllerHost?.onBeforeCapture?.(style);
-      await h.controllerHost?.onCovered?.(style);
-      await h.controllerHost?.onCancelled?.(style);
-    });
-
-    expect(h.setHoveredBookKey.mock.calls).toEqual([[null], ['book-1']]);
-  });
+      expect(h.setHoveredBookKey.mock.calls).toEqual([[null], ['book-1']]);
+    },
+  );
 
   test('does not show the toolbar after cancellation when it started hidden', async () => {
     h.hoveredBookKey = null;
@@ -1144,41 +1144,41 @@ describe('useCapturedTurn scroll-lock gate', () => {
     expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
   });
 
-  test.each([
-    'curl',
-    'slide',
-  ] as const)('synchronizes toolbar state with a web layered %s lifecycle', (style) => {
-    vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'web');
-    const gridCell = document.createElement('div');
-    gridCell.id = 'gridcell-book-1';
-    document.body.appendChild(gridCell);
-    renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
+  test.each(['curl', 'slide'] as const)(
+    'synchronizes toolbar state with a web layered %s lifecycle',
+    (style) => {
+      vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'web');
+      const gridCell = document.createElement('div');
+      gridCell.id = 'gridcell-book-1';
+      document.body.appendChild(gridCell);
+      renderHook(() => useCapturedTurn('book-1', { current: makeView() }));
 
-    const dispatch = (phase: string) =>
-      h.renderer.dispatchEvent(
-        new CustomEvent('layered-turn-state', {
-          detail: { phase, style, forward: true },
-        }),
-      );
+      const dispatch = (phase: string) =>
+        h.renderer.dispatchEvent(
+          new CustomEvent('layered-turn-state', {
+            detail: { phase, style, forward: true },
+          }),
+        );
 
-    act(() => {
-      dispatch('before-capture');
-      dispatch('covered');
-    });
-    expect(h.controllerHost).toBeNull();
-    expect(h.setHoveredBookKey).toHaveBeenLastCalledWith(null);
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
+      act(() => {
+        dispatch('before-capture');
+        dispatch('covered');
+      });
+      expect(h.controllerHost).toBeNull();
+      expect(h.setHoveredBookKey).toHaveBeenLastCalledWith(null);
+      expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
 
-    act(() => dispatch('ready'));
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
+      act(() => dispatch('ready'));
+      expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
 
-    act(() => dispatch('cancelled'));
-    expect(h.setHoveredBookKey).toHaveBeenLastCalledWith('book-1');
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
+      act(() => dispatch('cancelled'));
+      expect(h.setHoveredBookKey).toHaveBeenLastCalledWith('book-1');
+      expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(true);
 
-    act(() => dispatch('finished'));
-    expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
-  });
+      act(() => dispatch('finished'));
+      expect(gridCell.classList.contains('captured-turn-sync-chrome')).toBe(false);
+    },
+  );
 
   // A warm surface is a photo of one page. Scrolled mode makes the pipeline
   // ineligible (getCapturedTurnStyle returns null), so nothing prepares a new
