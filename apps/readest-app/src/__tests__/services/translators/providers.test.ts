@@ -186,7 +186,7 @@ describe('yandexProvider', () => {
     expect(query.get('target_lang')).toBe('fr');
     expect(query.get('sid')).toBe('test-session-id-5-0');
     expect(opts?.method).toBe('POST');
-    expect((opts?.headers as Record<string, string>)['Authorization']).toBeUndefined();
+    expect((opts!.headers as Record<string, string>)['Authorization']).toBeUndefined();
     const body = new URLSearchParams(opts?.body as string);
     expect(body.get('text')).toBe('Hello');
     expect(opts?.signal).toBeInstanceOf(AbortSignal);

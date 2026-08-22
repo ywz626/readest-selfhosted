@@ -18,9 +18,18 @@ export const REL = {
   STREAM: 'http://vaemendis.net/opds-pse/stream',
 } as const;
 
+// These named declarations exist only to give the `unique symbol` values in
+// `SYMBOL` a publicly-referenceable type. Without them, TypeScript reports
+// TS4025 ("private name 'CONTENT'") because an exported type (e.g.
+// `OPDSPublication.metadata`) would otherwise expose an anonymous
+// `unique symbol` that consumers cannot name. The runtime value still comes
+// from `FOLIATE_SYMBOL`; these `declare const`s are type-only and emit nothing.
+export declare const CONTENT_SYMBOL: unique symbol;
+export declare const SUMMARY_SYMBOL: unique symbol;
+
 export const SYMBOL = FOLIATE_SYMBOL as {
-  readonly SUMMARY: unique symbol;
-  readonly CONTENT: unique symbol;
+  readonly SUMMARY: typeof SUMMARY_SYMBOL;
+  readonly CONTENT: typeof CONTENT_SYMBOL;
 };
 
 export interface OPDSCatalog {

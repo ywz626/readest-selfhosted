@@ -80,7 +80,7 @@ describe('runWithConcurrency', () => {
     ]);
     const failed = outcomes.find((o) => 'error' in o);
     expect(failed?.error).toBeInstanceOf(Error);
-    expect((failed?.error as Error).message).toBe('boom');
+    expect((failed!.error as Error).message).toBe('boom');
   });
 
   test('returns immediately on an empty input', async () => {
