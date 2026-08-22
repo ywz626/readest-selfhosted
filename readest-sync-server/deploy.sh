@@ -26,7 +26,7 @@ if ! git pull; then
 fi
 
 echo "==> [2/4] 重新构建镜像 (docker compose build)"
-docker compose build --no-cache "$SERVICE"
+docker compose build "$SERVICE"
 
 echo "==> [3/4] 停止并重建容器"
 docker compose up -d --force-recreate "$SERVICE"
