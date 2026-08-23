@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PiUserCircle, PiUserCircleCheck, PiGear } from 'react-icons/pi';
-import { PiSun, PiMoon } from 'react-icons/pi';
+import { PiSun, PiMoon, PiChartBar } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
 import { MdCloudSync, MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icons/md';
 
@@ -133,6 +133,11 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
 
   const handleManageSync = () => {
     router.push('/user?section=sync');
+    setIsDropdownOpen?.(false);
+  };
+
+  const handleMyReading = () => {
+    router.push('/stats');
     setIsDropdownOpen?.(false);
   };
 
@@ -431,6 +436,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         }
         onClick={cycleThemeMode}
       />
+      <MenuItem label={_('My Reading')} Icon={PiChartBar} onClick={handleMyReading} />
       <MenuItem label={_('Settings')} Icon={PiGear} onClick={openSettingsDialog} />
       <hr aria-hidden='true' className='border-base-200 my-1' />
       <MenuItem label={_('Advanced Settings')}>

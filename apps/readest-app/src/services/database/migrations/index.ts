@@ -143,6 +143,18 @@ const migrations: Record<SchemaType, MigrationEntry[]> = {
         );
       `,
     },
+    {
+      // The self-hosted sync server used to decode pushed stat rows with
+      // camelCase JSON tags while the client sends snake_case, so every push
+      // "succeeded" (HTTP 200) while the server silently dropped all rows —
+      // and the push cursor advanced past the local history. Reset it once so
+      // the next push re-uploads everything; the server upsert is idempotent
+      // (PK book_hash+page+start_time, duration = max).
+      name: '2026082301_stats_push_cursor_reset',
+      sql: `
+        UPDATE readest_stat_sync_state SET value = 0 WHERE key = 'push';
+      `,
+    },
   ],
   // Per-book search index/cache: one search.db in each book's directory
   // (beside cover.png), holding extracted section text so library full-text

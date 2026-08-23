@@ -20,6 +20,31 @@ export interface StatBook {
   authors: string; // KOReader stores authors as a single text field
 }
 
+/** One local-timezone month bucket of reading time. */
+export interface MonthlyReadTime {
+  year: number; // e.g. 2026
+  month: number; // 1-12
+  durationSecs: number;
+}
+
+/** Account-wide reading aggregates derived from page events. */
+export interface ReadingOverview {
+  totalReadSecs: number;
+  readingDays: number;
+  booksWithTime: number;
+}
+
+/** A book's identity plus its derived reading totals. */
+export interface StatBookTotals {
+  bookMd5: string;
+  title: string;
+  authors: string;
+  totalReadTime: number; // seconds
+  totalReadPages: number;
+  lastOpen: number; // unix seconds
+  pages: number;
+}
+
 /** Tunables for the tracker's flush/idle behavior. KOReader-aligned defaults. */
 export interface StatsTrackingConfig {
   /** Seconds of inactivity before the current page event is flushed + paused. */

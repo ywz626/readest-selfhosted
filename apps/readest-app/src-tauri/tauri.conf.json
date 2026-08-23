@@ -159,7 +159,7 @@
         "rank": "Alternate"
       }
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": false
   },
   "plugins": {
     "fs": {

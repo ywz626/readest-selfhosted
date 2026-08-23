@@ -142,6 +142,77 @@ describe('StatisticsDb', () => {
     expect(await stats.getCursor('push')).toBe(1234);
   });
 
+  it('aggregates the reading overview across books', async () => {
+    const idA = await stats.upsertBook({ bookMd5: 'ma', title: 'A', authors: '' });
+    const idB = await stats.upsertBook({ bookMd5: 'mb', title: 'B', authors: '' });
+    await stats.insertPageEvent(idA, { page: 1, startTime: 100, duration: 60, totalPages: 9 });
+    await stats.insertPageEvent(idA, { page: 2, startTime: 200, duration: 30, totalPages: 9 });
+    await stats.insertPageEvent(idB, { page: 1, startTime: 150, duration: 90, totalPages: 9 });
+
+    const overview = await stats.getReadingOverview();
+    expect(overview.totalReadSecs).toBe(180); // 60 + 30 + 90
+    expect(overview.booksWithTime).toBe(2);
+    // Same local day (offset applied to both timestamps identically).
+    expect(overview.readingDays).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns a zeroed overview for an empty database', async () => {
+    const overview = await stats.getReadingOverview();
+    expect(overview).toEqual({ totalReadSecs: 0, readingDays: 0, booksWithTime: 0 });
+  });
+
+  it('buckets monthly read times by local-timezone year-month', async () => {
+    // Build timestamps from naive local wall-clock values so the expected
+    // buckets don't depend on the machine running the test: local = UTC +
+    // offset, so UTC = naive - offset.
+    const offsetSecs = -new Date().getTimezoneOffset() * 60;
+    const id = await stats.upsertBook({ bookMd5: 'm1', title: 'T', authors: 'A' });
+    const localWallClock = (naiveSecs: number, hour: number) =>
+      naiveSecs - offsetSecs + hour * 3600;
+    const dec31 = Date.UTC(2025, 11, 31, 0, 0, 0) / 1000;
+    await stats.insertPageEvent(id, {
+      page: 1,
+      startTime: localWallClock(dec31, 23),
+      duration: 600,
+      totalPages: 9,
+    });
+    await stats.insertPageEvent(id, {
+      page: 2,
+      startTime: localWallClock(dec31, 23),
+      duration: 300,
+      totalPages: 9,
+    });
+    const jan1 = Date.UTC(2026, 0, 1, 0, 0, 0) / 1000;
+    await stats.insertPageEvent(id, {
+      page: 3,
+      startTime: localWallClock(jan1, 0),
+      duration: 120,
+      totalPages: 9,
+    });
+
+    const monthly = await stats.getMonthlyReadTimes();
+    expect(monthly).toEqual([
+      { year: 2025, month: 12, durationSecs: 900 },
+      { year: 2026, month: 1, durationSecs: 120 },
+    ]);
+  });
+
+  it('ranks books by total reading time, excluding unread ones', async () => {
+    const idA = await stats.upsertBook({ bookMd5: 'ma', title: 'A', authors: 'X' });
+    const idB = await stats.upsertBook({ bookMd5: 'mb', title: 'B', authors: 'Y' });
+    const idC = await stats.upsertBook({ bookMd5: 'mc', title: 'C', authors: '' }); // never read
+    void idC;
+    await stats.insertPageEvent(idB, { page: 1, startTime: 100, duration: 10, totalPages: 9 });
+    await stats.insertPageEvent(idA, { page: 1, startTime: 200, duration: 999, totalPages: 9 });
+    await stats.recomputeBookTotals(idA);
+    await stats.recomputeBookTotals(idB);
+
+    const top = await stats.getTopBooksByReadTime(10);
+    expect(top.map((b) => b.bookMd5)).toEqual(['ma', 'mb']); // A first, C excluded
+    expect(top[0]).toMatchObject({ title: 'A', authors: 'X', totalReadTime: 999 });
+    expect((await stats.getTopBooksByReadTime(1)).length).toBe(1);
+  });
+
   it('keeps one book row per md5 even when title/authors change (no duplicates)', async () => {
     const id1 = await stats.upsertBook({ bookMd5: 'm1', title: 'Old', authors: 'A' });
     const id2 = await stats.upsertBook({ bookMd5: 'm1', title: 'New', authors: 'B' });

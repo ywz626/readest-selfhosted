@@ -15,6 +15,8 @@ import { BookMetadata } from '@/libs/document';
 import { openExternalUrl } from '@/utils/open';
 import { getBookGoodreadsQuery, getGoodreadsSearchUrl } from '@/utils/goodreads';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useBookReadTime } from '@/hooks/useBookReadTime';
+import { formatReadingDuration } from '@/utils/time';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useEnv } from '@/context/EnvContext';
 import {
@@ -67,6 +69,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
   const _ = useTranslation();
   const { envConfig } = useEnv();
   const { settings } = useSettingsStore();
+  const readTimeSecs = useBookReadTime(book.hash);
   const [subjectsExpanded, setSubjectsExpanded] = useState(false);
   const subjects = getContributorNames(metadata?.subject);
   const visibleSubjects = subjectsExpanded ? subjects : subjects.slice(0, 3);
@@ -304,6 +307,18 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                   <span className='font-bold'>{_('Pages')}</span>
                   <p className='text-neutral-content text-sm'>
                     {book.progress?.[1] || _('Unknown')}
+                  </p>
+                </div>
+                {/*
+                  Per-book reading time from the statistics DB — the same
+                  page-event records the stats page and cross-device sync use.
+                  `null` means no statistics row yet (book never opened here
+                  and nothing pulled from the server).
+                */}
+                <div className='overflow-hidden'>
+                  <span className='font-bold'>{_('Reading Time')}</span>
+                  <p className='text-neutral-content text-sm'>
+                    {readTimeSecs === null ? '-' : formatReadingDuration(readTimeSecs, _)}
                   </p>
                 </div>
                 <div className='col-span-2 overflow-hidden sm:col-span-1'>

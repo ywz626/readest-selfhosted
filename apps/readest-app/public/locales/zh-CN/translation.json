@@ -2045,5 +2045,21 @@
   "This folder is an external library. Uncheck to stop reading its books in place; future imports will copy books into the library.": "此文件夹是外部书库。取消勾选后将不再就地读取其中的书籍；之后的导入会把书籍复制到书库中。",
   "More Settings": "更多设置",
   "Right-to-Left Pages": "从右到左翻页",
-  "Send Document Metadata": "发送文档元数据"
+  "Send Document Metadata": "发送文档元数据",
+  "My Reading": "我的阅读",
+  "Total Reading Time": "累计阅读",
+  "hours": "小时",
+  "minutes": "分钟",
+  "Reading Days": "阅读天数",
+  "Books Read": "读过书籍",
+  "Reading Time by Month": "每月阅读时长",
+  "{{year}} total": "{{year}} 年合计",
+  "Top 10 Books": "阅读时长榜 TOP 10",
+  "No reading data yet": "暂无阅读记录",
+  "Reading time is recorded while you read and synced across devices.": "阅读时会自动记录阅读时长，并同步到你的所有设备。",
+  "Syncing reading stats...": "正在同步阅读统计…",
+  "Reading Time": "阅读时长",
+  "{{minutes}} min": "{{minutes}} 分钟",
+  "{{hours}} h": "{{hours}} 小时",
+  "{{hours}} h {{minutes}} min": "{{hours}} 小时 {{minutes}} 分钟"
 }

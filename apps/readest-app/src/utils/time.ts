@@ -79,3 +79,17 @@ export const formatCountdown = (msLeft: number): string => {
   const seconds = total % 60;
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 };
+
+// Human reading duration for the stats page and book detail: "45 min" below an
+// hour, "3 h 24 min" above. Sub-minute remainders are noise at this scale.
+export const formatReadingDuration = (
+  seconds: number,
+  t: (key: string, options?: Record<string, number | string>) => string,
+): string => {
+  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours === 0) return t('{{minutes}} min', { minutes });
+  if (minutes === 0) return t('{{hours}} h', { hours });
+  return t('{{hours}} h {{minutes}} min', { hours, minutes });
+};

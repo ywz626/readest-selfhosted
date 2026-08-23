@@ -217,7 +217,9 @@ func TestPushAndPullStats(t *testing.T) {
 	h := NewSyncHandler(ms)
 	svc := auth.NewService("c", "s")
 	tok, _ := svc.IssueToken("owner")
-	body := []byte(`{"statBooks":[{"bookHash":"h1","title":"T","authors":"A","updatedAtMs":0}],"statPages":[{"bookHash":"h1","page":12,"startTime":1700000000000,"duration":60,"totalPages":200,"updatedAtMs":0}]}`)
+	// Payload mirrors the real client push (statsSync.ts toWireBook/toWirePage):
+	// snake_case keys, start_time in unix SECONDS, no updated_at_ms (server stamps it).
+	body := []byte(`{"statBooks":[{"book_hash":"h1","title":"T","authors":"A"}],"statPages":[{"book_hash":"h1","page":12,"start_time":1700000000,"duration":60,"total_pages":200}]}`)
 	req := newAuthedReq("POST", "/api/sync", body, tok)
 	rec := httptest.NewRecorder()
 	wrap(svc, h).ServeHTTP(rec, req)

@@ -35,22 +35,25 @@ type ReplicaKeyRow struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// Client sends stat rows in camelCase; we convert them to the snake_case
-// store rows that the pull response also expects.
+// Client pushes stat rows in snake_case (StatBookRecord / StatPageRecord in
+// apps/readest-app/src/libs/sync.ts, populated by statsSync.ts toWireBook /
+// toWirePage) — the same shape the pull response returns. The previous
+// camelCase tags silently dropped every pushed row (Go's decoder ignores
+// unknown fields → empty BookHash → skipped), so no stats ever landed.
 type statBookWire struct {
-	BookHash    string  `json:"bookHash"`
+	BookHash    string  `json:"book_hash"`
 	Title       string  `json:"title"`
 	Authors     string  `json:"authors"`
-	UpdatedAtMs *int64  `json:"updatedAtMs"`
-	DeletedAt   *int64  `json:"deletedAt"`
+	UpdatedAtMs *int64  `json:"updated_at_ms"`
+	DeletedAt   *int64  `json:"deleted_at"`
 }
 
 type statPageWire struct {
-	BookHash    string  `json:"bookHash"`
+	BookHash    string  `json:"book_hash"`
 	Page        int     `json:"page"`
-	StartTime   int64   `json:"startTime"`
+	StartTime   int64   `json:"start_time"`
 	Duration    int64   `json:"duration"`
-	TotalPages  int64   `json:"totalPages"`
-	UpdatedAtMs *int64  `json:"updatedAtMs"`
-	DeletedAt   *int64  `json:"deletedAt"`
+	TotalPages  int64   `json:"total_pages"`
+	UpdatedAtMs *int64  `json:"updated_at_ms"`
+	DeletedAt   *int64  `json:"deleted_at"`
 }

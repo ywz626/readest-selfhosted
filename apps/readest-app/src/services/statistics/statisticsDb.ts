@@ -1,6 +1,12 @@
 import type { AppService } from '@/types/system';
 import type { DatabaseService, DatabaseRow } from '@/types/database';
-import type { PageStatEvent, StatBook } from '@/types/statistics';
+import type {
+  MonthlyReadTime,
+  PageStatEvent,
+  ReadingOverview,
+  StatBook,
+  StatBookTotals,
+} from '@/types/statistics';
 
 interface BookRow extends DatabaseRow {
   id: number;
@@ -257,6 +263,69 @@ export class StatisticsDb {
     } finally {
       release();
     }
+  }
+
+  /**
+   * Account-wide aggregates for the reading-stats page. Buckets use the
+   * device's local timezone: SQLite's `localtime` modifier can't be trusted
+   * across the WASM/native engine split, so the offset is applied explicitly
+   * as a parameter (DST edge days landing in the neighbouring month are a
+   * tolerable approximation).
+   */
+  async getReadingOverview(): Promise<ReadingOverview> {
+    const offset = -new Date().getTimezoneOffset() * 60;
+    const rows = await this.db.select<DatabaseRow>(
+      `SELECT COALESCE(SUM(duration), 0) AS total,
+              COUNT(DISTINCT date(start_time + ?, 'unixepoch')) AS days,
+              COUNT(DISTINCT id_book) AS books
+       FROM page_stat_data`,
+      [offset],
+    );
+    const row = rows[0];
+    return {
+      totalReadSecs: Number(row?.['total'] ?? 0),
+      readingDays: Number(row?.['days'] ?? 0),
+      booksWithTime: Number(row?.['books'] ?? 0),
+    };
+  }
+
+  /** Reading time bucketed by local-timezone year-month, ascending. */
+  async getMonthlyReadTimes(): Promise<MonthlyReadTime[]> {
+    const offset = -new Date().getTimezoneOffset() * 60;
+    const rows = await this.db.select<DatabaseRow>(
+      `SELECT strftime('%Y', start_time + ?, 'unixepoch') AS year,
+              strftime('%m', start_time + ?, 'unixepoch') AS month,
+              SUM(duration) AS duration
+       FROM page_stat_data
+       GROUP BY year, month
+       ORDER BY year, month`,
+      [offset, offset],
+    );
+    return rows.map((r) => ({
+      year: Number(r['year']),
+      month: Number(r['month']),
+      durationSecs: Number(r['duration']),
+    }));
+  }
+
+  /** Books ranked by total reading time, descending. */
+  async getTopBooksByReadTime(limit: number): Promise<StatBookTotals[]> {
+    const rows = await this.db.select<BookRow>(
+      `SELECT * FROM book
+       WHERE total_read_time > 0
+       ORDER BY total_read_time DESC, last_open DESC
+       LIMIT ?`,
+      [limit],
+    );
+    return rows.map((b) => ({
+      bookMd5: b.md5,
+      title: b.title,
+      authors: b.authors,
+      totalReadTime: b.total_read_time,
+      totalReadPages: b.total_read_pages,
+      lastOpen: b.last_open,
+      pages: b.pages,
+    }));
   }
 
   async getCursor(key: CursorKey): Promise<number> {
