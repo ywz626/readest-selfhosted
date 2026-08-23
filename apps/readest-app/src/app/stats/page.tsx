@@ -1,18 +1,18 @@
 'use client';
 
 import clsx from 'clsx';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEnv } from '@/context/EnvContext';
 import { useTheme } from '@/hooks/useTheme';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useReadingStats } from '@/hooks/useReadingStats';
-import { formatReadingDuration } from '@/utils/time';
+import type { StatBookTotals } from '@/types/statistics';
 import { navigateToLibrary } from '@/utils/nav';
 import Spinner from '@/components/Spinner';
 import StatsHeader from './components/Header';
-import MonthlyChart from './components/MonthlyChart';
+import ReadingChart, { type ChartRange } from './components/ReadingChart';
 import TopBooksList from './components/TopBooksList';
 
 const StatsPage = () => {
@@ -20,10 +20,10 @@ const StatsPage = () => {
   const router = useRouter();
   const { appService } = useEnv();
   const { safeAreaInsets, isRoundedWindow } = useThemeStore();
-  const { data, loading, syncing } = useReadingStats();
+  const { data, loading, syncing, getTopBooksInRange } = useReadingStats();
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [rangeBooks, setRangeBooks] = useState<StatBookTotals[] | null>(null);
 
   useTheme({ systemUIVisible: false });
 
@@ -31,13 +31,24 @@ const StatsPage = () => {
     navigateToLibrary(router);
   };
 
+  const handleRangeChange = useCallback(
+    async (range: ChartRange) => {
+      const books = await getTopBooksInRange(range.fromSec, range.toSec);
+      setRangeBooks(books);
+    },
+    [getTopBooksInRange],
+  );
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   if (!mounted) return null;
 
-  const { overview, monthly, topBooks } = data;
-  const totalHours = Math.floor(overview.totalReadSecs / 3600);
-  const totalMinutes = Math.floor((overview.totalReadSecs % 3600) / 60);
+  const { overview, monthly, daily, topBooks } = data;
   const hasData = overview.totalReadSecs > 0;
   const isEmpty = !loading && !syncing && !hasData;
+  const displayTopBooks = rangeBooks ?? topBooks;
 
   return (
     <div
@@ -71,39 +82,13 @@ const StatsPage = () => {
                 </div>
               ) : (
                 <>
-                  <section
-                    aria-label={_('Total Reading Time')}
-                    className='bg-primary/5 flex flex-col gap-4 rounded-xl p-6'
-                  >
-                    <div className='flex items-baseline gap-2'>
-                      <span className='text-primary text-4xl font-bold tabular-nums'>
-                        {totalHours > 0 ? totalHours : totalMinutes}
-                      </span>
-                      <span className='text-primary/80 text-lg font-medium'>
-                        {totalHours > 0 ? _('hours') : _('minutes')}
-                      </span>
-                    </div>
-                    <span className='text-neutral-content text-sm'>
-                      {formatReadingDuration(overview.totalReadSecs, _)}
-                    </span>
-                    <div className='border-base-200/70 flex gap-8 border-t pt-4'>
-                      <div className='flex flex-col'>
-                        <span className='text-base-content text-xl font-semibold tabular-nums'>
-                          {overview.readingDays}
-                        </span>
-                        <span className='text-neutral-content/80 text-xs'>{_('Reading Days')}</span>
-                      </div>
-                      <div className='flex flex-col'>
-                        <span className='text-base-content text-xl font-semibold tabular-nums'>
-                          {overview.booksWithTime}
-                        </span>
-                        <span className='text-neutral-content/80 text-xs'>{_('Books Read')}</span>
-                      </div>
-                    </div>
-                  </section>
-
-                  <MonthlyChart monthly={monthly} />
-                  <TopBooksList books={topBooks} />
+                  <ReadingChart
+                    monthly={monthly}
+                    daily={daily}
+                    overview={overview}
+                    onRangeChange={handleRangeChange}
+                  />
+                  <TopBooksList books={displayTopBooks} />
                 </>
               )}
               {syncing && (

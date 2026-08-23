@@ -1,6 +1,7 @@
 import type { AppService } from '@/types/system';
 import type { DatabaseService, DatabaseRow } from '@/types/database';
-import type {
+import {
+  DailyReadTime,
   MonthlyReadTime,
   PageStatEvent,
   ReadingOverview,
@@ -308,6 +309,27 @@ export class StatisticsDb {
     }));
   }
 
+  /** Reading time bucketed by local-timezone year-month-day, ascending. */
+  async getDailyReadTimes(): Promise<DailyReadTime[]> {
+    const offset = -new Date().getTimezoneOffset() * 60;
+    const rows = await this.db.select<DatabaseRow>(
+      `SELECT strftime('%Y', start_time + ?, 'unixepoch') AS year,
+              strftime('%m', start_time + ?, 'unixepoch') AS month,
+              strftime('%d', start_time + ?, 'unixepoch') AS day,
+              SUM(duration) AS duration
+       FROM page_stat_data
+       GROUP BY year, month, day
+       ORDER BY year, month, day`,
+      [offset, offset, offset],
+    );
+    return rows.map((r) => ({
+      year: Number(r['year']),
+      month: Number(r['month']),
+      day: Number(r['day']),
+      durationSecs: Number(r['duration']),
+    }));
+  }
+
   /** Books ranked by total reading time, descending. */
   async getTopBooksByReadTime(limit: number): Promise<StatBookTotals[]> {
     const rows = await this.db.select<BookRow>(
@@ -325,6 +347,42 @@ export class StatisticsDb {
       totalReadPages: b.total_read_pages,
       lastOpen: b.last_open,
       pages: b.pages,
+    }));
+  }
+
+  /**
+   * Books ranked by reading time within a [fromSec, toSec] window,
+   * descending. Falls back to the all-time ranking when `fromSec`
+   * or `toSec` is null (called from the "total" tab).
+   */
+  async getTopBooksByReadTimeInRange(
+    limit: number,
+    fromSec: number | null,
+    toSec: number | null,
+  ): Promise<StatBookTotals[]> {
+    if (fromSec === null || toSec === null) {
+      return this.getTopBooksByReadTime(limit);
+    }
+    const rows = await this.db.select<DatabaseRow>(
+      `SELECT b.md5 AS book_md5, b.title AS title, b.authors AS authors,
+              SUM(p.duration) AS total_read_time,
+              MAX(p.start_time) AS last_open
+       FROM page_stat_data p
+       JOIN book b ON b.id = p.id_book
+       WHERE p.start_time >= ? AND p.start_time < ?
+       GROUP BY p.id_book
+       ORDER BY total_read_time DESC, last_open DESC
+       LIMIT ?`,
+      [fromSec, toSec, limit],
+    );
+    return rows.map((r) => ({
+      bookMd5: String(r['book_md5'] ?? ''),
+      title: String(r['title'] ?? ''),
+      authors: String(r['authors'] ?? ''),
+      totalReadTime: Number(r['total_read_time'] ?? 0),
+      totalReadPages: 0,
+      lastOpen: Number(r['last_open'] ?? 0),
+      pages: 0,
     }));
   }
 

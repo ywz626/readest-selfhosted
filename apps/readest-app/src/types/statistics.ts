@@ -13,6 +13,14 @@ export interface PageStatEvent {
   totalPages: number;
 }
 
+/** One local-timezone day bucket of reading time. */
+export interface DailyReadTime {
+  year: number;
+  month: number;
+  day: number;
+  durationSecs: number;
+}
+
 /** KOReader book identity — the only book metadata that syncs. */
 export interface StatBook {
   bookMd5: string;

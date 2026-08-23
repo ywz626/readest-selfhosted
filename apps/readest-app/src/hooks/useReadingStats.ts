@@ -1,27 +1,35 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
 import { StatisticsDb } from '@/services/statistics/statisticsDb';
 import { pullStats } from '@/services/statistics/statsSync';
 import { SyncClient } from '@/libs/sync';
 import { isSyncCategoryEnabled } from '@/services/sync/syncCategories';
-import type { MonthlyReadTime, ReadingOverview, StatBookTotals } from '@/types/statistics';
+import type {
+  DailyReadTime,
+  MonthlyReadTime,
+  ReadingOverview,
+  StatBookTotals,
+} from '@/types/statistics';
 
 export interface ReadingStatsData {
   overview: ReadingOverview;
   monthly: MonthlyReadTime[];
+  daily: DailyReadTime[];
   topBooks: StatBookTotals[];
 }
 
 const EMPTY_STATS: ReadingStatsData = {
   overview: { totalReadSecs: 0, readingDays: 0, booksWithTime: 0 },
   monthly: [],
+  daily: [],
   topBooks: [],
 };
 
 const queryAll = async (db: StatisticsDb): Promise<ReadingStatsData> => ({
   overview: await db.getReadingOverview(),
   monthly: await db.getMonthlyReadTimes(),
+  daily: await db.getDailyReadTimes(),
   topBooks: await db.getTopBooksByReadTime(10),
 });
 
@@ -38,17 +46,17 @@ export const useReadingStats = () => {
   const [data, setData] = useState<ReadingStatsData>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const dbRef = useRef<StatisticsDb | null>(null);
 
   useEffect(() => {
     if (!appService) return;
     let cancelled = false;
 
     const run = async () => {
-      // Best-effort telemetry: a failed read/sync must never surface as an
-      // unhandled rejection (matches the tracker's runBestEffort contract).
       try {
         const db = await StatisticsDb.open(appService);
         if (cancelled) return;
+        dbRef.current = db;
         setData(await queryAll(db));
       } catch (err) {
         console.warn('[stats] failed to load reading stats:', err);
@@ -76,5 +84,14 @@ export const useReadingStats = () => {
     };
   }, [appService, user]);
 
-  return { data, loading, syncing };
+  /** Top-10 books filtered to a time window (inclusive) or all-time when null. */
+  const getTopBooksInRange = async (
+    fromSec: number | null,
+    toSec: number | null,
+  ): Promise<StatBookTotals[]> => {
+    if (!dbRef.current) return [];
+    return dbRef.current.getTopBooksByReadTimeInRange(10, fromSec, toSec);
+  };
+
+  return { data, loading, syncing, getTopBooksInRange };
 };
