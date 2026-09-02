@@ -954,6 +954,32 @@ Denies the open_external_url command without any pre-configured scope.
 <tr>
 <td>
 
+`native-bridge:allow-open-web-browser`
+
+</td>
+<td>
+
+Enables the open_web_browser command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-bridge:deny-open-web-browser`
+
+</td>
+<td>
+
+Denies the open_web_browser command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-bridge:allow-read-share-clip-html`
 
 </td>
@@ -1051,6 +1077,32 @@ Enables the remove_listener command without any pre-configured scope.
 <td>
 
 Denies the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-bridge:allow-render-pdf-cover`
+
+</td>
+<td>
+
+Enables the render_pdf_cover command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-bridge:deny-render-pdf-cover`
+
+</td>
+<td>
+
+Denies the render_pdf_cover command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1363,6 +1415,32 @@ Enables the set_system_ui_visibility command without any pre-configured scope.
 <td>
 
 Denies the set_system_ui_visibility command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-bridge:allow-set-web-browser-status`
+
+</td>
+<td>
+
+Enables the set_web_browser_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-bridge:deny-set-web-browser-status`
+
+</td>
+<td>
+
+Denies the set_web_browser_status command without any pre-configured scope.
 
 </td>
 </tr>

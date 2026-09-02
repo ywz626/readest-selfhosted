@@ -315,7 +315,7 @@ export const nativeFileSystem: FileSystem = {
         // or file:// URIs is security scoped resource in iOS (e.g. from Files app),
         // we cannot access the file directly — so we copy it to a temporary cache location.
         const prefix = await this.getPrefix('Cache');
-        const dst = await join(prefix, decodeURIComponent(fname));
+        const dst = await join(prefix, `${crypto.randomUUID()}-${decodeURIComponent(fname)}`);
         const res = await copyURIToPath({ uri: path, dst });
         if (!res.success) {
           console.error('Failed to open file:', res);
@@ -662,12 +662,23 @@ export class NativeAppService extends BaseAppService {
       });
     }
     const settings = await this.loadSettings();
-    if (this.customRootDir || settings.customRootDir) {
+    const customRootDir = this.customRootDir || settings.customRootDir;
+    if (customRootDir) {
       this.fs.resolvePath = getPathResolver({
-        customRootDir: this.customRootDir || settings.customRootDir,
+        customRootDir,
         isPortable: this.isPortableApp,
         execDir,
       });
+      // Validate the root before anything depends on it. We deliberately keep
+      // the custom resolver installed when it fails: silently falling back to
+      // the default location would scatter imports into a second library and
+      // make the real books look lost once the root comes back. Recording it
+      // here lets the library page name the folder instead of dying on an
+      // unhandled rejection (blank App Store window, sandbox-denied root).
+      if (!(await this.isRootDirUsable())) {
+        this.unavailableRootDir = customRootDir;
+        console.error('[nativeAppService] library root is not usable:', customRootDir);
+      }
     }
     if (this.isIOSApp) {
       this.isOnlineCatalogsAccessible = this.distChannel !== 'appstore';
@@ -992,6 +1003,10 @@ export class NativeAppService extends BaseAppService {
     const { getMigrations } = await import('./database/migrations');
     await migrate(db, getMigrations(schema));
     return db;
+  }
+
+  override async installDatabase(path: string, base: BaseDir, source: File): Promise<void> {
+    await this.writeFile(path, base, source);
   }
 
   async migrate20251029() {

@@ -45,6 +45,22 @@ vi.mock('@/services/cloudService', () => ({
   downloadReplicaFileFromCloud: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@/services/tts/ttsDownloadManager', () => ({
+  ttsDownloadManager: {
+    removeBook: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/tts/providers/bookCacheStore', () => ({
+  clearBookTTSDownloads: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/services/tts/TTSSessionManager', () => ({
+  ttsSessionManager: {
+    stopBook: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 vi.mock('@/services/fontService', () => ({
   importFont: vi.fn().mockResolvedValue({ name: 'Font', path: '/f' }),
   deleteFont: vi.fn().mockResolvedValue(undefined),
@@ -53,6 +69,23 @@ vi.mock('@/services/fontService', () => ({
 vi.mock('@/services/imageService', () => ({
   importImage: vi.fn().mockResolvedValue({ id: 'img', url: '/img' }),
   deleteImage: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/services/dictionaries/dictionaryService', () => ({
+  importDictionaries: vi.fn(),
+  deleteDictionary: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/services/dictionaries/plugins/import', () => ({
+  importPluginDictionaries: vi.fn(),
+}));
+
+vi.mock('@/services/dictionaries/registry', () => ({
+  evictProvider: vi.fn(),
+}));
+
+vi.mock('@/services/dictionaries/plugins/controlService', () => ({
+  getDictionaryPluginControlStore: vi.fn(),
 }));
 
 vi.mock('@/utils/book', () => ({
@@ -80,7 +113,16 @@ vi.mock('@/utils/permission', async (importOriginal) => {
 import { BaseAppService } from '@/services/appService';
 import * as Settings from '@/services/settingsService';
 import * as BookSvc from '@/services/bookService';
+import * as CloudSvc from '@/services/cloudService';
 import * as LibrarySvc from '@/services/libraryService';
+import * as DictSvc from '@/services/dictionaries/dictionaryService';
+import * as PluginImport from '@/services/dictionaries/plugins/import';
+import type { ImportedDictionary } from '@/services/dictionaries/types';
+import { evictProvider } from '@/services/dictionaries/registry';
+import { getDictionaryPluginControlStore } from '@/services/dictionaries/plugins/controlService';
+import { ttsDownloadManager } from '@/services/tts/ttsDownloadManager';
+import { clearBookTTSDownloads } from '@/services/tts/providers/bookCacheStore';
+import { ttsSessionManager } from '@/services/tts/TTSSessionManager';
 import { requestStoragePermission } from '@/utils/permission';
 
 // Concrete test implementation of BaseAppService
@@ -202,6 +244,39 @@ describe('BaseAppService', () => {
       await service.prepareBooksDir();
       expect(mockFs.getPrefix).toHaveBeenCalledWith('Books');
       expect(service.localBooksDir).toBe('/base/books');
+    });
+  });
+
+  describe('isRootDirUsable', () => {
+    test('defaults to no unavailable root', () => {
+      expect(service.unavailableRootDir).toBeNull();
+    });
+
+    test('reports usable without creating anything when the dir already exists', async () => {
+      vi.mocked(mockFs.exists).mockResolvedValue(true);
+      await expect(service.isRootDirUsable()).resolves.toBe(true);
+      expect(mockFs.createDir).not.toHaveBeenCalled();
+    });
+
+    test('creates the books dir when missing and reports usable', async () => {
+      vi.mocked(mockFs.exists).mockResolvedValue(false);
+      await expect(service.isRootDirUsable()).resolves.toBe(true);
+      expect(mockFs.createDir).toHaveBeenCalledWith('', 'Books', true);
+    });
+
+    // The macOS App Sandbox denies `file-write-create` for any path outside the
+    // app container. A stale `customRootDir` therefore made the first library
+    // read throw, and that rejection was never caught — the App Store build sat
+    // on a blank window forever. Probing the root has to answer "no", not throw.
+    test('reports unusable when the books dir cannot be created', async () => {
+      vi.mocked(mockFs.exists).mockResolvedValue(false);
+      vi.mocked(mockFs.createDir).mockRejectedValue(new Error('forbidden path'));
+      await expect(service.isRootDirUsable()).resolves.toBe(false);
+    });
+
+    test('reports unusable when the root cannot even be probed', async () => {
+      vi.mocked(mockFs.exists).mockRejectedValue(new Error('forbidden path'));
+      await expect(service.isRootDirUsable()).resolves.toBe(false);
     });
   });
 
@@ -340,6 +415,113 @@ describe('BaseAppService', () => {
     });
   });
 
+  describe('dictionary operations', () => {
+    test('passes plugin imports and replacements into legacy duplicate detection', async () => {
+      const oldPlugin = {
+        id: 'old-plugin',
+        kind: 'plugin',
+        name: 'Old plugin',
+        bundleDir: 'old-plugin-dir',
+        files: { pluginSource: 'old.zip' },
+        addedAt: 1,
+      } as ImportedDictionary;
+      const untouched = {
+        id: 'untouched',
+        kind: 'bgl',
+        name: 'Untouched',
+        bundleDir: 'untouched-dir',
+        files: { bgl: 'untouched.bgl' },
+        addedAt: 1,
+      } as ImportedDictionary;
+      const importedPlugin = {
+        ...oldPlugin,
+        id: 'imported-plugin',
+        name: 'Imported plugin',
+      };
+      const replacementPlugin = {
+        ...oldPlugin,
+        id: 'replacement-plugin',
+        name: 'Replacement plugin',
+      };
+      const unclaimed = [{ file: new File(['legacy'], 'legacy.bgl') }];
+      const pluginImportResult = {
+        imported: [importedPlugin],
+        replacements: [{ oldIds: [oldPlugin.id], newDict: replacementPlugin }],
+        unclaimed,
+        failures: [{ name: 'broken.zip', message: 'Invalid Yomitan bank' }],
+      };
+      vi.mocked(PluginImport.importPluginDictionaries).mockResolvedValue(pluginImportResult);
+      vi.mocked(DictSvc.importDictionaries).mockResolvedValue({
+        imported: [],
+        replacements: [],
+        orphanFiles: [],
+      });
+
+      const result = await service.importDictionaries(unclaimed, [oldPlugin, untouched]);
+
+      expect(DictSvc.importDictionaries).toHaveBeenCalledWith(mockFs, unclaimed, [
+        untouched,
+        importedPlugin,
+        replacementPlugin,
+      ]);
+      expect(result).toMatchObject({ importErrors: pluginImportResult.failures });
+    });
+
+    test('returns committed plugin replacements when a legacy import fails', async () => {
+      const oldPlugin = {
+        id: 'old-plugin',
+        kind: 'plugin',
+        name: 'Old plugin',
+        bundleDir: 'old-plugin-dir',
+        files: { pluginSource: 'old.zip' },
+        addedAt: 1,
+      } as ImportedDictionary;
+      const replacementPlugin = {
+        ...oldPlugin,
+        id: 'replacement-plugin',
+        bundleDir: 'replacement-plugin-dir',
+      };
+      const legacyFile = { file: new File(['legacy'], 'legacy.bgl') };
+      vi.mocked(PluginImport.importPluginDictionaries).mockResolvedValue({
+        imported: [],
+        replacements: [{ oldIds: [oldPlugin.id], newDict: replacementPlugin }],
+        unclaimed: [legacyFile],
+        failures: [],
+      });
+      vi.mocked(DictSvc.importDictionaries).mockRejectedValue(
+        new Error('injected legacy write failure'),
+      );
+
+      await expect(service.importDictionaries([legacyFile], [oldPlugin])).resolves.toEqual({
+        imported: [],
+        replacements: [{ oldIds: [oldPlugin.id], newDict: replacementPlugin }],
+        orphanFiles: [],
+        importErrors: [{ name: 'legacy.bgl', message: 'injected legacy write failure' }],
+      });
+    });
+
+    test('evicts lookup state and removes derived plugin indexes before deleting the source', async () => {
+      const removeDictionary = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(getDictionaryPluginControlStore).mockResolvedValue({
+        removeDictionary,
+      } as unknown as Awaited<ReturnType<typeof getDictionaryPluginControlStore>>);
+      const dict = {
+        id: 'plugin-dict',
+        kind: 'plugin',
+        name: 'Plugin dictionary',
+        bundleDir: 'plugin-dir',
+        files: { pluginSource: 'source.zip' },
+        addedAt: 1,
+      } as ImportedDictionary;
+
+      await service.deleteDictionary(dict);
+
+      expect(evictProvider).toHaveBeenCalledWith(dict.id);
+      expect(removeDictionary).toHaveBeenCalledWith(dict.id);
+      expect(DictSvc.deleteDictionary).toHaveBeenCalledWith(mockFs, dict);
+    });
+  });
+
   describe('resolveFilePath', () => {
     test('combines prefix with path', async () => {
       const result = await service.resolveFilePath('test.json', 'Data');
@@ -423,6 +605,79 @@ describe('BaseAppService', () => {
     test('loadLibraryBooks delegates', async () => {
       const result = await service.loadLibraryBooks();
       expect(result).toEqual([{ title: 'Book1' }]);
+    });
+  });
+
+  describe('deleteBook TTS queue lifecycle', () => {
+    const book = { hash: 'book-hash', title: 'Book' } as Parameters<
+      TestAppService['deleteBook']
+    >[0];
+
+    test('clears queued downloads only when the local copy is deleted', async () => {
+      await service.deleteBook(book, 'cloud');
+      expect(ttsDownloadManager.removeBook).not.toHaveBeenCalled();
+      expect(clearBookTTSDownloads).not.toHaveBeenCalled();
+
+      await service.deleteBook(book, 'local');
+      expect(ttsDownloadManager.removeBook).toHaveBeenCalledTimes(1);
+      expect(ttsDownloadManager.removeBook).toHaveBeenCalledWith('book-hash');
+      expect(clearBookTTSDownloads).toHaveBeenCalledWith(service, 'book-hash');
+    });
+
+    test('does not clear queued downloads when local deletion fails', async () => {
+      vi.mocked(CloudSvc.deleteBook).mockRejectedValueOnce(new Error('disk failure'));
+
+      await expect(service.deleteBook(book, 'local')).rejects.toThrow('disk failure');
+      expect(ttsDownloadManager.removeBook).not.toHaveBeenCalled();
+      expect(clearBookTTSDownloads).not.toHaveBeenCalled();
+    });
+
+    test('quiesces downloads and the live session before purging the cache directory', async () => {
+      let finishDownloadCancellation: () => void = () => {};
+      let finishSessionStop: () => void = () => {};
+      vi.mocked(ttsDownloadManager.removeBook).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finishDownloadCancellation = resolve;
+        }),
+      );
+      vi.mocked(ttsSessionManager.stopBook).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finishSessionStop = resolve;
+        }),
+      );
+
+      const deletion = service.deleteBook(book, 'purge');
+
+      await vi.waitFor(() => expect(ttsDownloadManager.removeBook).toHaveBeenCalled());
+      expect(ttsDownloadManager.removeBook).toHaveBeenCalledWith('book-hash');
+      expect(ttsSessionManager.stopBook).not.toHaveBeenCalled();
+      expect(CloudSvc.deleteBook).not.toHaveBeenCalled();
+
+      finishDownloadCancellation();
+      await vi.waitFor(() => expect(ttsSessionManager.stopBook).toHaveBeenCalled());
+      expect(ttsSessionManager.stopBook).toHaveBeenCalledWith('book-hash', 'deleted');
+      expect(CloudSvc.deleteBook).not.toHaveBeenCalled();
+
+      finishSessionStop();
+      await deletion;
+      expect(CloudSvc.deleteBook).toHaveBeenCalled();
+    });
+
+    test('waits for active download cancellation before clearing pinned audio', async () => {
+      let finishCancellation: () => void = () => {};
+      vi.mocked(ttsDownloadManager.removeBook).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finishCancellation = resolve;
+        }),
+      );
+
+      const deletion = service.deleteBook(book, 'local');
+      await vi.waitFor(() => expect(ttsDownloadManager.removeBook).toHaveBeenCalled());
+      expect(clearBookTTSDownloads).not.toHaveBeenCalled();
+
+      finishCancellation();
+      await deletion;
+      expect(clearBookTTSDownloads).toHaveBeenCalledWith(service, 'book-hash');
     });
   });
 

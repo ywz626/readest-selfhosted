@@ -59,6 +59,9 @@ import type { TTSController } from '@/services/tts/TTSController';
 import { eventDispatcher } from '@/utils/event';
 
 class FakeController extends EventTarget {
+  // Stands in for a TTSController: the manager gates the stats recorder on
+  // this PlaybackSource tag.
+  readonly kind = 'tts' as const;
   state = 'playing';
   terminated = false;
   isViewAttached = true;
@@ -276,11 +279,108 @@ describe('TTSSessionManager', () => {
     expect(manager.getPlaybackState()).toBe('playing');
   });
 
+  test('the stats recorder holds the live session, so adopt rebinds its bookKey', () => {
+    claim();
+    // Identity, not a copy: adopt() rewrites bookKey IN PLACE when the reader
+    // reattaches to a background session, and the recorder resolves progress
+    // and config by that key. A snapshot would keep writing to the closed
+    // pane's entry for the rest of the session.
+    expect(statsMocks.instances[0]!.session).toBe(manager.getActiveSession());
+    manager.adopt('hashA-r2', meta('hashA-r2'));
+    expect(statsMocks.instances[0]!.session.bookKey).toBe('hashA-r2');
+  });
+
   test('flushes the stats recorder when the session stops', async () => {
     claim();
     controller.emitState('playing');
     await manager.stopActive('user');
     expect(statsMocks.instances[0]!.stop).toHaveBeenCalled();
+  });
+
+  test('stopBook joins teardown after the live slot has already been cleared', async () => {
+    let finishShutdown: () => void = () => {};
+    controller.shutdown.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishShutdown = resolve;
+      }),
+    );
+    claim();
+
+    const stopping = manager.stopActive('user');
+    expect(manager.getActiveSession()).toBeNull();
+    let joined = false;
+    const joining = manager.stopBook('hashA', 'deleted').then(() => {
+      joined = true;
+    });
+    await Promise.resolve();
+    expect(joined).toBe(false);
+
+    finishShutdown();
+    await Promise.all([stopping, joining]);
+    expect(joined).toBe(true);
+  });
+
+  test('a concurrent generic stop does not tear down a replacement session', async () => {
+    let finishShutdown: () => void = () => {};
+    controller.shutdown.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishShutdown = resolve;
+      }),
+    );
+    claim();
+
+    const firstStop = manager.stopActive('user');
+    const joinedStop = manager.stopActive('user');
+    const replacement = new FakeController();
+    claim('hashB-r1', replacement);
+
+    finishShutdown();
+    await Promise.all([firstStop, joinedStop]);
+    expect(manager.getActiveSession()?.controller).toBe(replacement as unknown as TTSController);
+    expect(replacement.shutdown).not.toHaveBeenCalled();
+  });
+
+  test('a user stop requested for a replacement waits and then stops it', async () => {
+    let finishShutdown: () => void = () => {};
+    controller.shutdown.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishShutdown = resolve;
+      }),
+    );
+    claim();
+
+    const firstStop = manager.stopActive('user');
+    const replacement = new FakeController();
+    claim('hashB-r1', replacement);
+    const replacementStop = manager.stopActive('user');
+
+    finishShutdown();
+    await Promise.all([firstStop, replacementStop]);
+    expect(manager.getActiveSession()).toBeNull();
+    expect(replacement.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  test('stopBook waits for a replaced controller of the same book to close', async () => {
+    let finishOldShutdown: () => void = () => {};
+    controller.shutdown.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishOldShutdown = resolve;
+      }),
+    );
+    claim();
+    const replacement = new FakeController();
+    claim('hashA-r2', replacement);
+
+    let finished = false;
+    const stopping = manager.stopBook('hashA', 'deleted').then(() => {
+      finished = true;
+    });
+    await vi.waitFor(() => expect(replacement.shutdown).toHaveBeenCalledTimes(1));
+    expect(finished).toBe(false);
+
+    finishOldShutdown();
+    await stopping;
+    expect(finished).toBe(true);
   });
 
   test('never orphans a stats recorder when the same session is re-claimed', () => {

@@ -14,7 +14,17 @@ const DATA_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../data
 const load = (pair: string): GlossIndexData =>
   JSON.parse(readFileSync(resolve(DATA_DIR, `${pair}.json`), 'utf8')) as GlossIndexData;
 
-const EN_SOURCE_PAIRS = ['en-en', 'en-zh', 'en-de', 'en-es', 'en-fr', 'en-pt', 'en-ru'] as const;
+const EN_SOURCE_PAIRS = [
+  'en-en',
+  'en-zh',
+  'en-de',
+  'en-es',
+  'en-fr',
+  'en-pt',
+  'en-ru',
+  'en-vi',
+  'en-hu',
+] as const;
 
 describe('Word Lens pack data — lemmatization invariants', () => {
   for (const pair of EN_SOURCE_PAIRS) {
@@ -43,6 +53,18 @@ describe('Word Lens pack data — lemmatization invariants', () => {
       });
     });
   }
+
+  // Target-only languages: shipped as en→X, deliberately absent as X→en. vi needs a
+  // segmenter (its words carry spaces inside them); hu is agglutinative, so its surface
+  // forms would need a lemmatizer we have no list for.
+  it.each([['vi'], ['hu']])('ships en→%s but not %s→en', (lang) => {
+    const manifest = JSON.parse(readFileSync(resolve(DATA_DIR, 'manifest.json'), 'utf8')) as {
+      packs: { pair: string }[];
+    };
+    const pairs = manifest.packs.map((p) => p.pair);
+    expect(pairs).toContain(`en-${lang}`);
+    expect(pairs).not.toContain(`${lang}-en`);
+  });
 
   it('keeps the common noun "number" (not dropped as the comparative of "numb")', () => {
     for (const pair of ['en-en', 'en-zh'] as const) {

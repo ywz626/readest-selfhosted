@@ -436,12 +436,13 @@ const getPageLayoutStyles = (
     display: table !important;
     max-width: 100%;
   }
-  pre, code, math {
+  pre, code {
     white-space: pre-wrap !important;
     scrollbar-width: none;
   }
   math {
     overflow: auto;
+    scrollbar-width: none;
   }
   table, math {
     max-width: calc(var(--available-width) * 1px);
@@ -1286,6 +1287,19 @@ export const applyThemeModeClass = (document: Document, isDarkMode: boolean) => 
 export const applyScrollModeClass = (document: Document, isScrollMode: boolean) => {
   document.body.classList.remove('scroll-mode', 'paginated-mode');
   document.body.classList.add(isScrollMode ? 'scroll-mode' : 'paginated-mode');
+};
+
+/**
+ * Mirror the top document's `data-eink` onto the book document so a user
+ * stylesheet can branch on screen type (#5795). `userStylesheet` is in
+ * SETTINGS_WHITELIST and syncs across devices, while `isEink` is per-device;
+ * without this attribute an e-ink readability tweak (say a text stroke to
+ * thicken a light CJK face) also lands on the user's phone and desktop.
+ * Both values are written, matching useEinkMode, so `html[data-eink='false']`
+ * can carry the LCD-only half of a rule.
+ */
+export const applyEinkModeAttribute = (document: Document, isEink: boolean) => {
+  document.documentElement.setAttribute('data-eink', isEink ? 'true' : 'false');
 };
 
 /**

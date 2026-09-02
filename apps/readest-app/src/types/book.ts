@@ -16,8 +16,10 @@ export type BookFormat =
   | 'FB2'
   | 'FBZ'
   | 'TXT'
-  | 'MD';
-export type BookNoteType = 'bookmark' | 'annotation' | 'excerpt';
+  | 'MD'
+  // Streaming audiobook from an Audiobookshelf server; filePath is abs://<serverId>/<itemId>
+  | 'ABS';
+export type BookNoteType = 'bookmark' | 'annotation' | 'excerpt' | 'notebook';
 export type ReadingStatus = 'unread' | 'reading' | 'finished' | 'abandoned';
 export type HighlightStyle = 'highlight' | 'underline' | 'squiggly';
 // Predefined highlight colors, can be extended with custom hex colors
@@ -47,6 +49,11 @@ export const FIXED_LAYOUT_FORMATS: Set<BookFormat> = new Set(['PDF', 'CBZ']);
 export interface BookLookupIndex {
   byHash: Map<string, Book>;
   byMetaKey: Map<string, Book[]>; // key = `${metaHash}:${format}`
+  // Fallback for books whose metaHash moves with every export of the same file
+  // (calibre re-mints dc:identifier, issue #5959). key =
+  // `${getStableMetadataHash(metadata)}:${format}`, and only books that carry a
+  // volatile identifier appear here.
+  byStableKey: Map<string, Book[]>;
   // Maps normalized absolute source path -> Book for in-place imports.
   // Lets the importer recognize "I already have this exact file" without
   // having to open, parse, and hash it again. Only books with a non-empty
@@ -111,6 +118,14 @@ export interface Book {
    * sync channel; a pin/unpin bumps `updatedAt` so peers pick it up (LWW).
    */
   pinnedAt?: number;
+  // Field-level LWW timestamp for group membership (groupId + groupName), so an
+  // unrelated row bump cannot clobber a grouping edit. The row's updatedAt is
+  // stamped by things that have nothing to do with groups -- most notably
+  // `cloudService.uploadBook`, which bumps it on every UPLOAD -- so whole-row
+  // LWW let a peer holding a never-grouped copy win and erase the group for the
+  // whole fleet (#5911). Mirrors readingStatusUpdatedAt / coverUpdatedAt /
+  // metadataUpdatedAt.
+  groupUpdatedAt?: number | null;
   tags?: string[];
   coverImageUrl?: string | null;
   // Partial MD5 of the local cover.png. Content-addressed cover-change signal:
@@ -145,6 +160,15 @@ export interface Book {
   // library can badge it without opening the file. Derived from the file on
   // every import, like `format` — not user data, so it needs no LWW timestamp.
   hasNarration?: boolean;
+  duration?: number; // total audio length in seconds (ABS audiobooks)
+  // Marks this ABS stub as a podcast show rather than an audiobook. Audiobook
+  // shows remain unmarked (absMediaType undefined) — presence of the field
+  // set to 'podcast' is the only signal.
+  absMediaType?: 'podcast';
+  // Episode count for an ABS podcast show stub. Drives the library grid's
+  // episode-count badge and lets reconcileAbsBooks detect a new episode as a
+  // change even though title/author/duration are otherwise unchanged.
+  episodeCount?: number;
 
   metadata?: BookMetadata;
   // Field-level LWW timestamp for the metadata group (title, author, tags,
@@ -329,6 +353,23 @@ export interface ViewConfig {
   showPaginationButtons: boolean;
   progressStyle: 'percentage' | 'fraction' | 'reference';
   referencePageCount: number;
+
+  // Styling for the header (section title) and footer (progress readout,
+  // remaining time/pages, clock, battery). See utils/headerFooterStyle.ts
+  // for how these resolve; e-ink ignores both colors.
+  /** Font size in px for the header/footer info text. */
+  headerFooterFontSize: number;
+  /** `''` follows the theme's base-content; otherwise a `#rrggbb`. */
+  headerFooterTextColor: string;
+  /**
+   * `'auto'` keeps the built-in backdrop (the scrolled-mode footer pill and
+   * nothing behind the header), `'none'` removes it everywhere, and a
+   * `#rrggbb` paints a matching chip behind both header and footer in every
+   * flow mode.
+   */
+  headerFooterBackground: string;
+  /** 0-1 alpha applied to a `#rrggbb` headerFooterBackground. */
+  headerFooterBgOpacity: number;
 
   animated: boolean;
   pageTurnStyle: PageTurnStyle;
@@ -559,6 +600,18 @@ export interface BookSearchResult {
 
 export const BOOK_CONFIG_SCHEMA_VERSION = 3;
 
+/**
+ * The Hardcover book this file syncs to. Set explicitly from the book menu
+ * ("Link Book") or recorded from the first successful automatic match; once
+ * present it bypasses ISBN and title matching entirely (#5846). Device-local:
+ * the cloud config push only carries the columns in `transformBookConfigToDB`.
+ */
+export interface HardcoverBookLink {
+  bookId: number;
+  /** Display only — lets the menu show the linked book without a request. */
+  title: string;
+}
+
 export interface BookConfig {
   schemaVersion?: number;
   bookHash?: string;
@@ -570,6 +623,15 @@ export interface BookConfig {
   rsvpPosition?: { cfi: string; wordText: string };
   searchConfig?: Partial<BookSearchConfig>;
   viewSettings?: Partial<ViewSettings>;
+  /**
+   * A device-local recording paired with this ebook. The audio files live
+   * under Books/<hash>/audiobook/, or stream from an Audiobookshelf server
+   * (see PairedAudiobook.source); either way the pairing is deliberately
+   * excluded from cloud sync, and ordinary reading progress remains the
+   * shared cross-device state.
+   */
+  audiobook?: PairedAudiobook;
+  hardcover?: HardcoverBookLink;
 
   lastSyncedAtConfig?: number;
   lastSyncedAtNotes?: number;
@@ -578,6 +640,56 @@ export interface BookConfig {
   foliateImportedAt?: number;
 
   updatedAt: number;
+}
+
+export interface AudiobookFile {
+  id: string;
+  name: string;
+  path: string;
+  duration: number;
+}
+
+export interface AudiobookChapter {
+  id: string;
+  fileId: string;
+  label: string;
+  start: number;
+  end: number;
+}
+
+export interface AudiobookChapterMapping {
+  ebookChapterId: string;
+  audioChapterId: string;
+}
+
+/**
+ * An audiobook streamed from an Audiobookshelf server instead of copied to
+ * the device. The pairing then has a single virtual file
+ * (`abs://<serverId>/<itemId>`) whose chapters are timed on the item's global
+ * timeline, and the track list here maps that timeline onto the server's
+ * media files; nothing under Books/<hash>/audiobook/ exists for it.
+ */
+export interface PairedAudiobookAbsSource {
+  kind: 'audiobookshelf';
+  serverId: string;
+  itemId: string;
+  tracks: {
+    index: number;
+    startOffset: number; // global seconds
+    duration: number; // seconds
+    contentUrl: string; // server-relative
+  }[];
+}
+
+export interface PairedAudiobook {
+  version: 1;
+  title?: string;
+  narrator?: string;
+  files: AudiobookFile[];
+  chapters: AudiobookChapter[];
+  mappings: AudiobookChapterMapping[];
+  createdAt: number;
+  source?: PairedAudiobookAbsSource;
 }
 
 export interface BookDataRecord {
@@ -603,6 +715,14 @@ export interface BooksGroup {
   id: string;
   name: string;
   displayName: string;
+  /**
+   * True when `displayName` is an i18n key rather than user-authored text, so
+   * the rendering component must run it through `_()`. Set for groupings whose
+   * values are enums we own (reading status); never set for series, author,
+   * tag or subject names, which must render verbatim even when one of them
+   * happens to collide with a UI string.
+   */
+  localized?: boolean;
   books: Book[];
 
   updatedAt: number;

@@ -20,6 +20,7 @@ import { annotationToolQuickActions } from './annotator/AnnotationTools';
 import { AnnotationToolType } from '@/types/annotator';
 import { saveViewSettings } from '@/helpers/settings';
 import { getHeaderTriggerHeight } from '@/utils/insets';
+import { getBookDataAttributes } from '@/utils/book';
 import { isForcedMobileLayout } from '../utils/mobileLayout';
 import { HighlighterIcon } from '@/components/HighlighterIcon';
 import Dropdown from '@/components/Dropdown';
@@ -70,8 +71,17 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
   const viewSettings = getViewSettings(bookKey);
   const bookData = getBookData(bookKey);
   const bookConfig = getConfig(bookKey);
-  const lastSyncedAt =
-    Math.max(bookConfig?.lastSyncedAtConfig || 0, bookConfig?.lastSyncedAtNotes || 0) || undefined;
+  // Readest Cloud's per-book stamps. Includes the PUSH stamps so this agrees
+  // with the View menu's sync row, which has always counted them — otherwise
+  // the row could read "Synced 2 minutes ago" while this dialog said "Never
+  // synced" for the same book.
+  const nativeLastSyncedAt =
+    Math.max(
+      bookConfig?.lastSyncedAtConfig || 0,
+      bookConfig?.lastSyncedAtNotes || 0,
+      bookConfig?.lastPushedAtConfig || 0,
+      bookConfig?.lastPushedAtNotes || 0,
+    ) || undefined;
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isMetaHashDialogOpen, setIsMetaHashDialogOpen] = useState(false);
@@ -260,7 +270,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
                   : _('Enable Quick Action on Selection')
               }
               className='exclude-title-bar-mousedown dropdown-bottom dropdown-center'
-              menuClassName='!relative'
+              menuClassName='relative!'
               buttonClassName={clsx(
                 'btn btn-ghost h-8 min-h-8 w-8 p-0',
                 viewSettings?.annotationQuickAction && 'bg-base-300/50',
@@ -295,8 +305,9 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
           className={clsx(
             'header-title z-15 bg-base-100 pointer-events-none hidden flex-1 items-center justify-center sm:flex',
             !windowButtonVisible && 'absolute inset-0',
-            isHeaderCompact && '!hidden',
+            isHeaderCompact && 'hidden!',
           )}
+          {...getBookDataAttributes(bookTitle, bookData?.book?.metadata)}
         >
           <div
             aria-hidden='true'
@@ -330,7 +341,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
                 isOpen={isMetaHashDialogOpen}
                 metadata={bookData?.bookDoc?.metadata ?? bookData?.book?.metadata}
                 storedMetaHash={bookData?.book?.metaHash}
-                lastSyncedAt={lastSyncedAt}
+                nativeLastSyncedAt={nativeLastSyncedAt}
                 onClose={() => setIsMetaHashDialogOpen(false)}
               />
             </ModalPortal>

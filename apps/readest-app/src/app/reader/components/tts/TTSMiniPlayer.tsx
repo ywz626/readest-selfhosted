@@ -14,6 +14,7 @@ import {
   MdSkipNext,
   MdSkipPrevious,
 } from 'react-icons/md';
+import { RiForward30Line, RiReplay15Line } from 'react-icons/ri';
 import { Insets } from '@/types/misc';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
@@ -26,6 +27,7 @@ import { isForcedMobileLayout } from '../../utils/mobileLayout';
 import { TTSPlaybackInfo, usePlaybackInfo } from './usePlaybackInfo';
 import { useCountdownLabel } from './useCountdownLabel';
 import { formatRate } from './SpeedRuler';
+import BufferingRing from './BufferingRing';
 import { getTTSMiniPlayerBottomOffset } from '../../utils/ttsMiniPlayerPosition';
 
 // Playback-settings glyph: a hex nut whose top-right edge is left open so
@@ -60,9 +62,16 @@ const SpeedSettingsIcon = ({ size, label }: { size: number; label: string }) => 
 type TTSMiniPlayerProps = {
   bookKey: string;
   isPlaying: boolean;
+  // Playing, but nothing audible yet — the play/pause button wears a ring.
+  buffering: boolean;
   isEink: boolean;
   visible: boolean;
   hasTimeline: boolean;
+  // A paired audiobook has no sentences to step by: the small step is the
+  // audiobook player's 30s forward / 15s back skip and the large step moves
+  // by audiobook chapter, with the glyphs and labels of an audio player
+  // (#5863).
+  audioTransport: boolean;
   timeoutTimestamp: number;
   chapterRemainingSec: number | null;
   gridInsets: Insets;
@@ -87,9 +96,11 @@ type TTSMiniPlayerProps = {
 const TTSMiniPlayer = ({
   bookKey,
   isPlaying,
+  buffering,
   isEink,
   visible,
   hasTimeline,
+  audioTransport,
   timeoutTimestamp,
   chapterRemainingSec,
   gridInsets,
@@ -262,15 +273,20 @@ const TTSMiniPlayer = ({
               <button
                 type='button'
                 className='shrink-0 rounded-full p-1'
-                aria-label={_('Previous Sentence')}
+                aria-label={audioTransport ? _('Back 15 Seconds') : _('Previous Sentence')}
                 onClick={() => onBackward(true)}
               >
-                <MdSkipPrevious size={iconSize28} />
+                {audioTransport ? (
+                  <RiReplay15Line size={iconSize26} />
+                ) : (
+                  <MdSkipPrevious size={iconSize28} />
+                )}
               </button>
               <button
                 type='button'
-                className='shrink-0 rounded-full p-0.5'
+                className='relative shrink-0 rounded-full p-0.5'
                 aria-label={isPlaying ? _('Pause') : _('Play')}
+                aria-busy={buffering}
                 onClick={onTogglePlay}
               >
                 {isPlaying ? (
@@ -278,14 +294,22 @@ const TTSMiniPlayer = ({
                 ) : (
                   <MdPlayCircleFilled size={iconSize40} />
                 )}
+                {/* Hugging the filled glyph: the drawn circle only fills about
+                    five sixths of the icon box, so the ring tracks the box
+                    rather than standing off from it. */}
+                {buffering && <BufferingRing size={iconSize40 - 2} isEink={isEink} />}
               </button>
               <button
                 type='button'
                 className='shrink-0 rounded-full p-1'
-                aria-label={_('Next Sentence')}
+                aria-label={audioTransport ? _('Forward 30 Seconds') : _('Next Sentence')}
                 onClick={() => onForward(true)}
               >
-                <MdSkipNext size={iconSize28} />
+                {audioTransport ? (
+                  <RiForward30Line size={iconSize26} />
+                ) : (
+                  <MdSkipNext size={iconSize28} />
+                )}
               </button>
               <button
                 type='button'
@@ -327,35 +351,49 @@ const TTSMiniPlayer = ({
             <button
               type='button'
               className='shrink-0 rounded-full p-1'
-              aria-label={_('Previous Paragraph')}
+              aria-label={audioTransport ? _('Previous Chapter') : _('Previous Paragraph')}
               onClick={() => onBackward(false)}
             >
-              <MdKeyboardDoubleArrowLeft size={iconSize26} />
+              {audioTransport ? (
+                <MdSkipPrevious size={iconSize26} />
+              ) : (
+                <MdKeyboardDoubleArrowLeft size={iconSize26} />
+              )}
             </button>
             <button
               type='button'
               className='shrink-0 rounded-full p-1'
-              aria-label={_('Previous Sentence')}
+              aria-label={audioTransport ? _('Back 15 Seconds') : _('Previous Sentence')}
               onClick={() => onBackward(true)}
             >
-              <MdKeyboardArrowLeft size={iconSize26} />
+              {audioTransport ? (
+                <RiReplay15Line size={iconSize26} />
+              ) : (
+                <MdKeyboardArrowLeft size={iconSize26} />
+              )}
             </button>
             <button
               type='button'
-              className='shrink-0 rounded-full p-1'
+              className='relative shrink-0 rounded-full p-1'
               aria-label={isPlaying ? _('Pause') : _('Play')}
+              aria-busy={buffering}
               onClick={onTogglePlay}
             >
               {/* Same canvas size for both glyphs, or the row shifts on toggle. */}
               {isPlaying ? <MdOutlinePause size={iconSize26} /> : <MdPlayArrow size={iconSize26} />}
+              {buffering && <BufferingRing size={iconSize26 + 8} isEink={isEink} />}
             </button>
             <button
               type='button'
               className='shrink-0 rounded-full p-1'
-              aria-label={_('Next Sentence')}
+              aria-label={audioTransport ? _('Forward 30 Seconds') : _('Next Sentence')}
               onClick={() => onForward(true)}
             >
-              <MdKeyboardArrowRight size={iconSize26} />
+              {audioTransport ? (
+                <RiForward30Line size={iconSize26} />
+              ) : (
+                <MdKeyboardArrowRight size={iconSize26} />
+              )}
             </button>
             {/* No stop button on purpose (#5310): five transport glyphs already
                 crowd a phone, and an accidental hit on a sixth ends the
@@ -364,10 +402,14 @@ const TTSMiniPlayer = ({
             <button
               type='button'
               className='shrink-0 rounded-full p-1'
-              aria-label={_('Next Paragraph')}
+              aria-label={audioTransport ? _('Next Chapter') : _('Next Paragraph')}
               onClick={() => onForward(false)}
             >
-              <MdKeyboardDoubleArrowRight size={iconSize26} />
+              {audioTransport ? (
+                <MdSkipNext size={iconSize26} />
+              ) : (
+                <MdKeyboardDoubleArrowRight size={iconSize26} />
+              )}
             </button>
             <div
               role='button'

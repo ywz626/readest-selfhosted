@@ -93,6 +93,8 @@
   "{{count}} chapters could not be downloaded._other": "{{count}} chapters could not be downloaded.",
   "{{count}} chapters_one": "{{count}} chapter",
   "{{count}} chapters_other": "{{count}} chapters",
+  "{{count}} episodes_one": "{{count}} episode",
+  "{{count}} episodes_other": "{{count}} episodes",
   "{{title}}, {{count}} results_one": "{{title}}, {{count}} result",
   "{{title}}, {{count}} results_other": "{{title}}, {{count}} results",
   "Within {{count}} words_one": "Within {{count}} word",
@@ -107,5 +109,11 @@
   "Failed to download {{count}} book(s)_other": "Failed to download {{count}} books",
   "Pin to Top": "Pin to Top",
   "Unpin from Top": "Unpin from Top",
-  "Pinned to Top": "Pinned to Top"
+  "Pinned to Top": "Pinned to Top",
+  "Cancel all ({{count}})_one": "Cancel all ({{count}})",
+  "Cancel all ({{count}})_other": "Cancel all ({{count}})",
+  "{{count}} server_one": "{{count}} server",
+  "{{count}} server_other": "{{count}} servers",
+  "Includes {{count}} orphaned book file(s) not in your library_one": "Includes {{count}} orphaned book file not in your library",
+  "Includes {{count}} orphaned book file(s) not in your library_other": "Includes {{count}} orphaned book files not in your library"
 }

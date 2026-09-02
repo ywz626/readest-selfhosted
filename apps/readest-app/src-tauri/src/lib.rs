@@ -34,11 +34,13 @@ mod macos;
 mod mobi_parser;
 mod nightly_update;
 mod parser_common;
+mod pdf_parser;
 mod range_file;
 mod sentry_config;
 #[cfg(desktop)]
 mod spawn_fresh_browser;
 mod transfer_file;
+mod web_browser;
 #[cfg(desktop)]
 mod window_state;
 #[cfg(target_os = "windows")]
@@ -420,6 +422,8 @@ pub fn run() {
             epub_parser::parse_epub_full,
             mobi_parser::parse_mobi_metadata,
             mobi_parser::extract_mobi_cover_full,
+            pdf_parser::parse_pdf_metadata,
+            pdf_parser::render_pdf_cover,
             #[cfg(target_os = "macos")]
             macos::safari_auth::auth_with_safari,
             #[cfg(target_os = "macos")]
@@ -433,6 +437,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             discord_rpc::clear_book_presence,
             clip_url::clip_url,
+            web_browser::open_web_browser,
+            web_browser::set_web_browser_status,
             localsend::commands::localsend_start,
             localsend::commands::localsend_stop,
             localsend::commands::localsend_get_status,

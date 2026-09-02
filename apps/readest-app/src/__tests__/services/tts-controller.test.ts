@@ -16,7 +16,10 @@ vi.mock('@/services/tts/WebSpeechClient', () => ({
 
 vi.mock('@/services/tts/EdgeTTSClient', () => ({
   EdgeTTSClient: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, createMockTTSClient('edge'), { setSentenceGap: vi.fn() });
+    Object.assign(this, createMockTTSClient('edge'), {
+      setSentenceGap: vi.fn(),
+      setParagraphGap: vi.fn(),
+    });
   }),
 }));
 
@@ -191,6 +194,10 @@ describe('TTSController', () => {
   });
 
   afterEach(async () => {
+    // Before anything that awaits a real timer: a fake-timer test that fails
+    // mid-way never reaches its own useRealTimers, and would hang every test
+    // after it on this shared clock.
+    vi.useRealTimers();
     // Ensure controller is stopped after each test
     try {
       await controller.stop();
@@ -1100,16 +1107,47 @@ describe('TTSController', () => {
 
     test('auto-advance stops at the boundary, parked on the next section', async () => {
       await arriveAtSectionEnd();
+      const sectionChanges: number[] = [];
+      controller.addEventListener('tts-section-change', (event) => {
+        sectionChanges.push((event as CustomEvent<{ sectionIndex: number }>).detail.sectionIndex);
+      });
       controller.stopAtChapterEnd = true;
 
       await controller.forward(false, true);
 
       expect(sectionOpened(1)).toBe(true);
+      expect(controller.getSectionIndex()).toBe(1);
+      expect(sectionChanges).toEqual([1]);
       // 'forward-paused', not 'paused': the play/pause toggle routes plain
       // 'paused' to the lightweight ttsClient.resume(), which would be a no-op
       // here since nothing was ever spoken for the new section.
       expect(controller.state).toBe('forward-paused');
       expect(stopKeepAlive).toHaveBeenCalled();
+    });
+
+    test('paused cross-section navigation publishes the section Play will resume from', async () => {
+      await controller.init();
+      await controller.initViewTTS(0);
+      const sectionChanges: number[] = [];
+      controller.addEventListener('tts-section-change', (event) => {
+        sectionChanges.push((event as CustomEvent<{ sectionIndex: number }>).detail.sectionIndex);
+      });
+
+      const firstTts = mockView.tts as unknown as Record<string, ReturnType<typeof vi.fn>>;
+      firstTts['next'] = vi.fn().mockReturnValue(undefined);
+      controller.state = 'paused';
+      await controller.forward();
+
+      expect(controller.state).toBe('forward-paused');
+      expect(controller.getSectionIndex()).toBe(1);
+
+      const secondTts = mockView.tts as unknown as Record<string, ReturnType<typeof vi.fn>>;
+      secondTts['prev'] = vi.fn().mockReturnValue(undefined);
+      await controller.backward();
+
+      expect(controller.state).toBe('backward-paused');
+      expect(controller.getSectionIndex()).toBe(0);
+      expect(sectionChanges).toEqual([1, 0]);
     });
 
     test('auto-advance crosses the boundary normally when the mode is off', async () => {
@@ -1188,6 +1226,50 @@ describe('TTSController', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(forwardSpy).toHaveBeenCalledWith(false, true);
+    });
+
+    test('the paragraph gap is waited out as given, not re-scaled by the rate', async () => {
+      // The gap arrives already scaled for the rate (see scaleGapForRate);
+      // dividing it again here cut every paragraph pause in half at 2x (#5750).
+      vi.useFakeTimers();
+      await controller.init();
+      await controller.initViewTTS(0);
+      controller.setParagraphGap(0.3);
+      await controller.setRate(2);
+      const forwardSpy = vi.spyOn(controller, 'forward').mockResolvedValue();
+      speakingControllers.push(controller);
+
+      await controller.speak('<speak>hello</speak>');
+      await vi.advanceTimersByTimeAsync(290);
+      expect(forwardSpy).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(20);
+      expect(forwardSpy).toHaveBeenCalledWith(false, true);
+      vi.useRealTimers();
+    });
+
+    test('a client that schedules its own gaps is not made to wait twice', async () => {
+      // The buffered client puts the paragraph pause on the audio clock, where
+      // the next paragraph's synthesis and decode hide inside it. Sleeping here
+      // as well would add the gap twice and put the network back on top (#5750).
+      vi.useFakeTimers();
+      await controller.init();
+      await controller.initViewTTS(0);
+      controller.setParagraphGap(0.3);
+      controller.ttsClient.getCapabilities = vi.fn().mockReturnValue({
+        wordBoundaries: true,
+        mediaClock: true,
+        gapControl: true,
+        liveRateChange: false,
+        scheduledGaps: true,
+      });
+      const forwardSpy = vi.spyOn(controller, 'forward').mockResolvedValue();
+      speakingControllers.push(controller);
+
+      await controller.speak('<speak>hello</speak>');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(forwardSpy).toHaveBeenCalledWith(false, true);
+      vi.useRealTimers();
     });
   });
 

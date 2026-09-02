@@ -139,7 +139,9 @@ plus the platform-specific `*AppService.ts` (`webAppService`, `nativeAppService`
 require-corp` on every document. The COOP/COEP pair is required so that the
 browser exposes `SharedArrayBuffer`, which the Turso WASM thread pool needs in
 order to run the in-browser replica database; without those headers
-`initThreadPool` hangs.
+`initThreadPool` hangs. `next.config.mjs` also applies COEP to `/_next/static/*`
+so bundled module workers inherit the isolation required by the database-backed
+dictionary plugin runtime.
 
 `/runtime-config.js` is a server route that emits
 `window.__READEST_RUNTIME_CONFIG = {...}` as a JavaScript file. It is loaded as
@@ -436,23 +438,44 @@ Four Read Aloud backends behind one interface (`src/services/tts`):
 - `EdgeTTSClient` going through `src/app/api/tts/edge` for streaming Microsoft
   Edge voices,
 - `MediaOverlayClient` (`tts/mediaOverlay/`), which plays a book's own recorded
-  narration from EPUB 3 Media Overlays instead of synthesizing — a Kindle
-  Immersion Reading equivalent. It also replaces foliate's text segmentation
-  with the SMIL par list, so marks and audio clips are 1:1 and the rest of the
-  stack (timeline, scrubber, media session, highlighting) is untouched. See
-  [read-along-narration.md](read-along-narration.md).
+  narration from embedded EPUB 3 Media Overlays or a device-local audiobook
+  paired to a reflowable EPUB. Embedded overlays replace foliate's text
+  segmentation with the SMIL par list; paired audiobooks use chapter mappings
+  from `src/services/audiobook` and disable text highlighting when no phrase
+  timing is available. See [read-along-narration.md](read-along-narration.md).
 
 `TTSCapabilities` (`wordBoundaries`, `mediaClock`, `gapControl`,
-`liveRateChange`) is how the controller and UI degrade per engine; gate on it
-rather than comparing client identities.
+`liveRateChange`, `continuousTimeline`, `textHighlight`) is how the controller
+and UI degrade per engine; gate on it rather than comparing client identities.
+
+Edge Read Aloud also supports persistent Offline Audio downloads. A durable,
+per-book queue (`ttsDownloadManager` + `ttsDownloadStore`) resumes when that
+book next has an active reader session. Completed sections are compacted into
+pinned packs under `Cache/tts-cache/<bookHash>/`; ordinary playback remains an
+evictable warm cache. Clearing Offline Audio removes only pinned downloads,
+while deleting a local book drains its queue and removes its downloaded audio.
 
 ### 6.6 Dictionaries
 
-`src/services/dictionaries` parses StarDict and SLOB packs locally
-(`readers/`), and integrates online sources (Wikipedia, Wiktionary,
-provider-specific). Lookup goes through a candidate generator + dedup so
-clicking a word finds all installed dictionaries and online sources in one
-roundtrip.
+`src/services/dictionaries` imports local StarDict, MDict, DICT, SLOB, and BGL
+packs and integrates online sources such as Wikipedia and Wiktionary. Lookup
+goes through a candidate generator and deduplication layer so clicking a word
+finds all enabled local and online sources in one roundtrip.
+
+Bundled dictionary formats run through the plugin boundary in
+`src/services/plugins`. A validated Worker protocol exposes only opaque source
+and database handles; host-side brokers enforce dictionary scope, SQL limits,
+and read-only access to active indexes. `src/services/dictionaries/plugins`
+owns import, integrity checks, device-local materialization, generation
+activation/rollback, provider lifecycle, and semantic result rendering.
+
+The first bundled implementation is Yomitan (`src/plugins/yomitan`). Raw `.zip`
+dictionaries are indexed into staged SQLite generations, while portable
+`.rdict` files install a pre-indexed database. Replica sync retains the source
+archive and its SHA-256 metadata, not the derived database, so each device can
+verify and rebuild its own index. Use
+`pnpm dictionary:yomitan:convert <input.zip> [output.rdict]` to create the
+portable form.
 
 ### 6.7 OPDS / Calibre
 

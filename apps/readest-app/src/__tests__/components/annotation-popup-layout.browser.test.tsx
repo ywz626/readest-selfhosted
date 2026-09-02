@@ -74,6 +74,11 @@ vi.mock('@/helpers/settings', () => ({
 
 vi.mock('@/app/reader/utils/annotatorUtil', () => ({
   getHighlightColorLabel: () => undefined,
+  // AnnotationPopup -> AnnotationNotes -> AnnotationNoteItem ->
+  // useSaveBooknoteNoteText imports these; a browser-mode mock is a strict
+  // ESM module, so every named import along the chain must exist.
+  decideNoteBubbleTransition: () => 'none',
+  applyNoteBubbleTransition: () => {},
 }));
 
 // ── Real component imports ──────────────────────────────────────────────
@@ -118,8 +123,11 @@ const expectElement = (locator: unknown) =>
  * where the triangle points up and highlight options float above.
  */
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  // One of the app's own themes, not daisyUI's stock `dark`: the stock palette
+  // is daisyUI's to change between releases (it did in v5), while the app's
+  // themes are pinned in themes.ts.
   <div
-    data-theme='dark'
+    data-theme='default-dark'
     style={{
       position: 'relative',
       width: POPUP_W,
