@@ -96,7 +96,8 @@ import { useNotesSync } from '@/app/reader/hooks/useNotesSync';
 
 const lastSavedNotes = () => {
   const call = h.setConfigMock.mock.calls.at(-1);
-  return (call?.[1] as { booknotes: BookNote[] }).booknotes;
+  if (!call) return [];
+  return (call[1] as { booknotes: BookNote[] }).booknotes;
 };
 
 const savedNote = (id: string) => lastSavedNotes().find((n) => n.id === id);
