@@ -24,6 +24,7 @@ const StatsPage = () => {
 
   const [mounted, setMounted] = useState(false);
   const [rangeBooks, setRangeBooks] = useState<StatBookTotals[] | null>(null);
+  const [rangeLabel, setRangeLabel] = useState<string | null>(null);
 
   useTheme({ systemUIVisible: false });
 
@@ -33,6 +34,7 @@ const StatsPage = () => {
 
   const handleRangeChange = useCallback(
     async (range: ChartRange) => {
+      setRangeLabel(range.label ?? null);
       const books = await getTopBooksInRange(range.fromSec, range.toSec);
       setRangeBooks(books);
     },
@@ -88,7 +90,10 @@ const StatsPage = () => {
                     overview={overview}
                     onRangeChange={handleRangeChange}
                   />
-                  <TopBooksList books={displayTopBooks} />
+                  <TopBooksList
+                    books={displayTopBooks}
+                    title={rangeLabel ? `${rangeLabel} · ${_('Top 10 Books')}` : undefined}
+                  />
                 </>
               )}
               {syncing && (

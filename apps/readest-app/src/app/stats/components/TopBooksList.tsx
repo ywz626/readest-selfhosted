@@ -5,17 +5,19 @@ import type { StatBookTotals } from '@/types/statistics';
 
 interface TopBooksListProps {
   books: StatBookTotals[];
+  /** Optional custom heading (e.g. "8月12日 · Top 10 Books"). Defaults to a translated one. */
+  title?: string;
 }
 
 /** Top-10 ranking by per-book reading time, with relative proportion bars. */
-const TopBooksList: React.FC<TopBooksListProps> = ({ books }) => {
+const TopBooksList: React.FC<TopBooksListProps> = ({ books, title }) => {
   const _ = useTranslation();
   if (books.length === 0) return null;
   const top = books[0]!.totalReadTime;
 
   return (
     <section aria-label={_('Top 10 Books')} className='flex flex-col gap-3'>
-      <h2 className='text-base-content text-base font-semibold'>{_('Top 10 Books')}</h2>
+      <h2 className='text-base-content text-base font-semibold'>{title ?? _('Top 10 Books')}</h2>
       <ol className='flex flex-col'>
         {books.map((book, index) => (
           <li

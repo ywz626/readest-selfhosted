@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -194,56 +193,102 @@ func (s *SqliteStore) UpsertBook(ctx context.Context, b BookRow) error {
 	if err != nil {
 		return err
 	}
-	if existing == nil {
-		return s.upsertBookRaw(ctx, b)
+	return s.upsertBookRaw(ctx, resolveBookMerge(existing, b))
+}
+
+// UpsertBooks persists many books in a single transaction. Existing rows are
+// fetched in one round-trip (WHERE book_hash IN (...)) instead of one SELECT
+// per book, then the LWW merge is applied and all writes are committed together.
+// This turns the N-book push from ~2N queries into 2 + N, which is the dominant
+// cost when syncing a large library.
+func (s *SqliteStore) UpsertBooks(ctx context.Context, userID string, books []BookRow) error {
+	if len(books) == 0 {
+		return nil
 	}
-	clientNewer := false
-	if b.DeletedAt != nil && (existing.DeletedAt == nil || *b.DeletedAt > *existing.DeletedAt) {
-		clientNewer = true
-	}
-	if b.UpdatedAt != nil && (existing.UpdatedAt == nil || *b.UpdatedAt > *existing.UpdatedAt) {
-		clientNewer = true
-	}
-	if clientNewer {
-		// Incoming row wins wholesale; preserve the server's created_at
-		// and any field-level values whose timestamp is >= the client's.
-		// This prevents a peer's progress-only update (which bumps updated_at
-		// but not metadataUpdatedAt) from silently dropping fields like
-		// pinned_at that were set by another device on the metadata clock.
-		var serverData, clientData map[string]interface{}
-		if json.Unmarshal(existing.Data, &serverData) == nil && json.Unmarshal(b.Data, &clientData) == nil {
-			if created, ok := serverData["created_at"]; ok {
-				clientData["created_at"] = created
-			}
-			mergeBookFieldsClientWins(clientData, serverData)
-			if bd, err := json.Marshal(clientData); err == nil {
-				b.Data = bd
-			}
+	// De-duplicate by book_hash, keeping the last occurrence (matches the
+	// client's last-wins behavior on push).
+	deduped := make([]BookRow, 0, len(books))
+	seen := make(map[string]int, len(books))
+	for _, b := range books {
+		if b.BookHash == "" {
+			continue
 		}
-		return s.upsertBookRaw(ctx, b)
-	}
-	// Server row wins; graft the client's newer fields.
-	var serverData, clientData map[string]interface{}
-	if json.Unmarshal(existing.Data, &serverData) == nil && json.Unmarshal(b.Data, &clientData) == nil {
-		merged, maxTS := mergeBookFields(serverData, clientData)
-		if merged {
-			if nd, err := json.Marshal(serverData); err == nil {
-				existing.Data = nd
-			}
-			existing.SyncedAt = time.Now().UTC().Format(time.RFC3339)
-			if maxTS != "" {
-				if t, err := time.Parse(time.RFC3339, maxTS); err == nil {
-					ms := t.UnixMilli()
-					existing.UpdatedAt = &ms
-				}
-			}
+		if i, ok := seen[b.BookHash]; ok {
+			deduped[i] = b
+		} else {
+			seen[b.BookHash] = len(deduped)
+			deduped = append(deduped, b)
 		}
 	}
-	return s.upsertBookRaw(ctx, *existing)
+	if len(deduped) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existingByHash, err := s.fetchExistingBooks(ctx, tx, userID, deduped)
+	if err != nil {
+		return err
+	}
+
+	for _, b := range deduped {
+		final := resolveBookMerge(existingByHash[b.BookHash], b)
+		if err := upsertBookRawTxSqlite(ctx, tx, final); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// fetchExistingBooks loads all existing rows for the given book hashes in a
+// single query.
+func (s *SqliteStore) fetchExistingBooks(ctx context.Context, q interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+}, userID string, books []BookRow) (map[string]*BookRow, error) {
+	hashes := make([]interface{}, len(books))
+	for i, b := range books {
+		hashes[i] = b.BookHash
+	}
+	placeholders := make([]string, len(hashes))
+	for i := range hashes {
+		placeholders[i] = "?"
+	}
+	query := `SELECT id,book_hash,meta_hash,updated_at,deleted_at,synced_at,data FROM books WHERE user_id=? AND book_hash IN (` +
+		strings.Join(placeholders, ",") + `)`
+	args := append([]interface{}{userID}, hashes...)
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]*BookRow, len(books))
+	for rows.Next() {
+		var b BookRow
+		var data string
+		if err := rows.Scan(&b.ID, &b.BookHash, &b.MetaHash, &b.UpdatedAt, &b.DeletedAt, &b.SyncedAt, &data); err != nil {
+			return nil, err
+		}
+		b.UserID = userID
+		b.Data = []byte(data)
+		out[b.BookHash] = &b
+	}
+	return out, rows.Err()
 }
 
 func (s *SqliteStore) upsertBookRaw(ctx context.Context, b BookRow) error {
-	_, err := s.db.ExecContext(ctx, `
+	return upsertBookRawTxSqlite(ctx, s.db, b)
+}
+
+// upsertBookRawTxSqlite writes a single book row using the provided executor
+// (either *sql.DB or *sql.Tx) so it can be reused inside a batched transaction.
+func upsertBookRawTxSqlite(ctx context.Context, exec interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}, b BookRow) error {
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO books (id,user_id,book_hash,meta_hash,updated_at,deleted_at,synced_at,data)
 		VALUES (?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id,book_hash) DO UPDATE SET

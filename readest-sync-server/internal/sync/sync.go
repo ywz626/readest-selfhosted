@@ -104,6 +104,7 @@ func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	bookRows := make([]store.BookRow, 0, len(payload.Books))
 	for _, raw := range payload.Books {
 		var p pushedBook
 		if err := json.Unmarshal(raw, &p); err != nil {
@@ -125,10 +126,13 @@ func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {
 			// parse the record it pulls back.
 			Data: mustJSON(bookToDB(&p, uid, now)),
 		}
-		if err := h.ms.UpsertBook(ctx, b); err != nil {
-			writeError(w, err)
-			return
-		}
+		bookRows = append(bookRows, b)
+	}
+	// Persist all books in one transaction (batched) instead of one round-trip
+	// per book — this is the dominant cost when pushing a large library.
+	if err := h.ms.UpsertBooks(ctx, uid, bookRows); err != nil {
+		writeError(w, err)
+		return
 	}
 	for _, raw := range payload.Notes {
 		var p pushedNote

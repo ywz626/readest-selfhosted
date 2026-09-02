@@ -16,6 +16,8 @@ export interface ChartRange {
   fromSec: number | null;
   /** exclusive end (unix seconds); null when tab === 'total' (all-time) */
   toSec: number | null;
+  /** localized label of the narrowed scope, e.g. "8月12日" (only when a specific unit is selected) */
+  label?: string;
 }
 
 interface ReadingChartProps {
@@ -145,6 +147,15 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     if (activeTab === 'week') {
       const start = selectedWeekStart.startOf('day');
       const end = selectedWeekStart.add(7, 'day').startOf('day');
+      if (selectedWeekDay !== null) {
+        const dayStart = weekDays[selectedWeekDay]!.startOf('day');
+        return {
+          tab: 'week',
+          fromSec: dayStart.unix(),
+          toSec: dayStart.add(1, 'day').unix(),
+          label: weekDays[selectedWeekDay]!.format('M月D日'),
+        };
+      }
       return {
         tab: 'week',
         fromSec: start.unix(),
@@ -154,13 +165,23 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     if (activeTab === 'month') {
       const start = selectedMonthDate.startOf('month');
       const end = selectedMonthDate.add(1, 'month').startOf('month');
+      if (selectedDay !== null) {
+        const dayStart = selectedMonthDate.date(selectedDay).startOf('day');
+        return {
+          tab: 'month',
+          fromSec: dayStart.unix(),
+          toSec: dayStart.add(1, 'day').unix(),
+          label: dayStart.format('M月D日'),
+        };
+      }
       return {
         tab: 'month',
         fromSec: start.unix(),
         toSec: end.unix(),
       };
     }
-    // year
+    // year — drilling into a month switches to the Month tab, so the whole-year
+    // range stays as-is here.
     const start = dayjs(`${selectedYear}-01-01`).startOf('year');
     const end = start.add(1, 'year');
     return {
@@ -168,7 +189,15 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
       fromSec: start.unix(),
       toSec: end.unix(),
     };
-  }, [activeTab, selectedWeekStart, selectedMonthDate, selectedYear]);
+  }, [
+    activeTab,
+    selectedWeekStart,
+    selectedMonthDate,
+    selectedYear,
+    selectedWeekDay,
+    selectedDay,
+    weekDays,
+  ]);
 
   useEffect(() => {
     onRangeChange?.(currentRange);
@@ -481,9 +510,19 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
               {MONTHS.map((month) => {
                 const duration = yearMonths.get(month) ?? 0;
                 const isSelected = selectedMonth === month;
-                return bar(duration, isSelected, `${month}`, () =>
-                  setSelectedMonth(isSelected ? null : month),
-                );
+                return bar(duration, isSelected, `${month}`, () => {
+                  // Drill down: jump to the Month tab positioned at this month,
+                  // where the user can then pick a specific day.
+                  setSelectedMonth(month);
+                  setSelectedDay(null);
+                  setSelectedMonthDate(
+                    dayjs()
+                      .year(selectedYear)
+                      .month(month - 1)
+                      .startOf('month'),
+                  );
+                  setActiveTab('month');
+                });
               })}
             </div>,
             MONTHS.map((month) => {
