@@ -47,7 +47,6 @@ rust-version = "1.90"
 
 [patch.crates-io]
 tauri = { path = "packages/tauri/crates/tauri" }
-tauri-plugin-fs = { path = "packages/tauri-plugins/plugins/fs" }
 # turso_ext 0.6.1's build.rs uses `cfg!(target_os = "windows")`, which is
 # evaluated against the build-script HOST when cross-compiling (Windows host ->
 # Android target), wrongly adding `-ladvapi32` to the Android link line and
