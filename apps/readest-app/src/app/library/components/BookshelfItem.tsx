@@ -460,10 +460,10 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
       // popup flash (issue #5360).
       if (appService?.isMobileApp || appService?.isLinuxApp) {
         setInAppMenuPosition(position);
-          return;
-        }
+        return;
+      }
       if (!appService?.hasContextMenu) return;
-      const menu = await ensureMenu();
+      const { menu } = await ensureMenu();
       // Pop up at an explicit position so keyboard invocation (ContextMenu /
       // Shift+F10) anchors the menu to the item instead of wherever the mouse
       // happens to sit. On macOS and Windows — the only platforms still on the
