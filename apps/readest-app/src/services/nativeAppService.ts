@@ -39,6 +39,7 @@ import {
 } from '@/types/system';
 import type { Book } from '@/types/book';
 import { needsQueryRangeReads } from '@/utils/ua';
+import { SELFHOSTED } from '@/utils/supabase';
 import { getOSPlatform, isContentURI, isFileURI, isValidURL } from '@/utils/misc';
 import { getDirPath, getFilename } from '@/utils/path';
 import { NativeFile, RemoteFile } from '@/utils/file';
@@ -587,6 +588,7 @@ export class NativeAppService extends BaseAppService {
   override hasSafeAreaInset = OS_TYPE === 'ios' || OS_TYPE === 'android';
   override hasHaptics = OS_TYPE === 'ios' || OS_TYPE === 'android';
   override hasUpdater =
+    !SELFHOSTED &&
     OS_TYPE !== 'ios' &&
     !process.env['NEXT_PUBLIC_DISABLE_UPDATER'] &&
     !window.__READEST_UPDATER_DISABLED;

@@ -8,6 +8,7 @@ import { TranslationFunc } from '@/hooks/useTranslation';
 import { setUpdaterWindowVisible } from '@/components/UpdaterWindow';
 import { isTauriAppPlatform } from '@/services/environment';
 import { getAppVersion, isUpdateNewer } from '@/utils/version';
+import { SELFHOSTED } from '@/utils/supabase';
 import {
   CHECK_UPDATE_INTERVAL_SEC,
   READEST_CHANGELOG_FILE,
@@ -140,6 +141,10 @@ export const checkForAppUpdates = async (
   isAutoCheck = true,
   updateChannel: 'stable' | 'nightly' = 'stable',
 ): Promise<boolean> => {
+  // Self-hosted builds must never check the official readest.com release
+  // servers — doing so would offer to overwrite this build with an official
+  // release. Auto/manual checks and the release-notes popup all bail out here.
+  if (SELFHOSTED) return false;
   const lastCheck = localStorage.getItem(LAST_CHECK_KEY);
   const now = Date.now();
   if (isAutoCheck && lastCheck && now - parseInt(lastCheck, 10) < CHECK_UPDATE_INTERVAL_SEC * 1000)
@@ -218,6 +223,8 @@ export const getLastShownReleaseNotesVersion = () => {
 };
 
 export const checkAppReleaseNotes = async (isAutoCheck = true) => {
+  // Self-hosted builds don't surface the official changelog popup either.
+  if (SELFHOSTED) return false;
   const currentVersion = getAppVersion();
   const lastShownVersion = getLastShownReleaseNotesVersion();
   if ((lastShownVersion && semver.gt(currentVersion, lastShownVersion)) || !isAutoCheck) {

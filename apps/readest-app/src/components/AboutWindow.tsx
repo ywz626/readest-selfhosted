@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
 import { parseWebViewInfo } from '@/utils/ua';
+import { SELFHOSTED } from '@/utils/supabase';
 import { getAppVersion } from '@/utils/version';
 import { writeTextToClipboard } from '@/utils/clipboard';
 import { eventDispatcher } from '@/utils/event';
@@ -123,7 +124,7 @@ export const AboutWindow = () => {
               </button>
             </div>
             <div className='my-1 h-5'>
-              {!updateStatus && (
+              {!SELFHOSTED && !updateStatus && (
                 <button
                   className='btn btn-sm btn-primary cursor-pointer p-1 text-xs'
                   onClick={appService?.hasUpdater ? handleCheckUpdate : handleShowRecentUpdates}
@@ -131,15 +132,15 @@ export const AboutWindow = () => {
                   {_('Check Update')}
                 </button>
               )}
-              {updateStatus === 'updated' && (
+              {!SELFHOSTED && updateStatus === 'updated' && (
                 <p className='text-neutral-content mt-2 text-xs'>
                   {_('Already the latest version')}
                 </p>
               )}
-              {updateStatus === 'checking' && (
+              {!SELFHOSTED && updateStatus === 'checking' && (
                 <p className='text-neutral-content mt-2 text-xs'>{_('Checking for updates...')}</p>
               )}
-              {updateStatus === 'error' && (
+              {!SELFHOSTED && updateStatus === 'error' && (
                 <p className='text-error mt-2 text-xs'>{_('Error checking for updates')}</p>
               )}
             </div>
