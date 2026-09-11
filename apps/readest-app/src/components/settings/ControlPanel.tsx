@@ -70,6 +70,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   );
   const [screenWakeLock, setScreenWakeLock] = useState(settings.screenWakeLock);
   const [autohideCursor, setAutohideCursor] = useState(settings.autohideCursor);
+  const [gamepadEnabled, setGamepadEnabled] = useState(settings.gamepadEnabled);
   const [allowScript, setAllowScript] = useState(viewSettings.allowScript);
   const [isAutoCheckUpdates, setIsAutoCheckUpdates] = useState(settings.autoCheckUpdates);
   const [isNightlyChannel, setIsNightlyChannel] = useState(settings.updateChannel === 'nightly');
@@ -275,6 +276,12 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
     getViews().forEach((view) => view?.toggleAttribute('autohide-cursor', autohideCursor));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autohideCursor]);
+
+  useEffect(() => {
+    if (gamepadEnabled === settings.gamepadEnabled) return;
+    saveSysSettings(envConfig, 'gamepadEnabled', gamepadEnabled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamepadEnabled]);
 
   useEffect(() => {
     if (viewSettings.allowScript === allowScript) return;
@@ -500,23 +507,19 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       </BoxedList>
 
       <BoxedList title={_('Device')} data-setting-id='settings.control.device'>
-        {(appService?.isAndroidApp || appService?.appPlatform === 'web') && (
-          <SettingsSwitchRow
-            label={_('E-Ink Mode')}
-            checked={isEink}
-            onChange={() => setIsEink(!isEink)}
-            data-setting-id='settings.control.einkMode'
-          />
-        )}
-        {(appService?.isAndroidApp || appService?.appPlatform === 'web') && (
-          <SettingsSwitchRow
-            label={_('Color E-Ink Mode')}
-            checked={isColorEink}
-            disabled={!isEink}
-            onChange={() => setIsColorEink(!isColorEink)}
-            data-setting-id='settings.control.colorEinkMode'
-          />
-        )}
+        <SettingsSwitchRow
+          label={_('E-Ink Mode')}
+          checked={isEink}
+          onChange={() => setIsEink(!isEink)}
+          data-setting-id='settings.control.einkMode'
+        />
+        <SettingsSwitchRow
+          label={_('Color E-Ink Mode')}
+          checked={isColorEink}
+          disabled={!isEink}
+          onChange={() => setIsColorEink(!isColorEink)}
+          data-setting-id='settings.control.colorEinkMode'
+        />
         {appService?.isMobileApp && (
           <SettingsSwitchRow
             label={_('System Screen Brightness')}
@@ -549,6 +552,13 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             data-setting-id='settings.control.autohideCursor'
           />
         )}
+        <SettingsSwitchRow
+          label={_('Gamepad Support')}
+          description={_('Navigate with a connected controller')}
+          checked={gamepadEnabled}
+          onChange={() => setGamepadEnabled(!gamepadEnabled)}
+          data-setting-id='settings.control.gamepadEnabled'
+        />
       </BoxedList>
 
       {appService?.hasUpdater && (

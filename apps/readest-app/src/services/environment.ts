@@ -3,6 +3,7 @@ import { READEST_NODE_BASE_URL, READEST_WEB_BASE_URL } from './constants';
 import { getRuntimeConfig } from './runtimeConfig';
 import { SELFHOSTED } from '@/utils/supabase';
 import { getSelfhostedServerUrl } from './selfhostedServerUrl';
+import { isLinuxCefRuntime } from '@/utils/ua';
 
 declare global {
   interface Window {
@@ -29,6 +30,18 @@ export const getBaseUrl = () => {
 };
 export const getNodeBaseUrl = () =>
   process.env['NEXT_PUBLIC_NODE_BASE_URL'] ?? READEST_NODE_BASE_URL;
+
+/**
+ * Whether window move/resize has to be driven from JS with pointer events.
+ * Under CEF on X11 the mouse press is owned by Chromium's X connection, so the
+ * runtime's `startDragging` (`_NET_WM_MOVERESIZE` from winit's connection) is
+ * refused by the window manager, and the undecorated window has no native
+ * resize borders either. Every other platform keeps the runtime's own drag.
+ */
+export const needsPointerWindowControls = () =>
+  isTauriAppPlatform() &&
+  typeof navigator !== 'undefined' &&
+  isLinuxCefRuntime(navigator.userAgent);
 
 export const isMacPlatform = () =>
   typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);

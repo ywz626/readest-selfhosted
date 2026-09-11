@@ -78,14 +78,36 @@ const AnnotationPopup: React.FC<AnnotationPopupProps> = ({
   const boxWidth = isVertical ? popupHeight : popupWidth;
   const boxHeight = isVertical ? popupWidth : popupHeight;
   return (
-    <div dir={dir}>
+    // The toolbar opens against the selection, which is where the range
+    // editors' handles hang: the two overlap by design, and whichever layer
+    // wins owns those pixels. The handles are grab targets, so they take it —
+    // under the toolbar their covered part stops dragging and fires whichever
+    // tool button it landed on instead. Hence z-[43], below the handle layer
+    // (z-[44]) but still above the paragraph/TTS chrome (z-40) and the
+    // footnote popup (z-[42]), whose text this toolbar also opens against
+    // (#6145). Every popup opened *from* the toolbar stays at z-50 and above
+    // the handles, so the wrapper is only here to put this one at 43.
+    //
+    // `absolute`, never `fixed`: `position` is in the book cell's coordinate
+    // space (Annotator subtracts `#gridcell-<bookKey>`'s rect), and the cell
+    // is the popup's `relative` ancestor. A fixed wrapper re-anchors the popup
+    // to the viewport, which drops it `cell.left` px to the left of the
+    // selection the moment the cell leaves the viewport origin — sidebar open,
+    // or any book past the first in a split view. Inset to the cell, this
+    // still makes the stacking context without moving anything.
+    // `pointer-events-none` keeps the cell-covering wrapper from swallowing
+    // the taps outside the popup that dismiss it.
+    <div dir={dir} className='pointer-events-none absolute inset-0 z-[43]'>
       <Popup
         width={boxWidth}
         height={boxHeight}
         minHeight={boxHeight}
         position={position}
         trianglePosition={trianglePosition}
-        className={clsx('selection-popup', (notes.length > 0 || noteEditor) && 'bg-transparent')}
+        className={clsx(
+          'selection-popup pointer-events-auto',
+          (notes.length > 0 || noteEditor) && 'bg-transparent',
+        )}
         onDismiss={onDismiss}
       >
         <div className={clsx('flex h-full gap-4', isVertical ? 'flex-row' : 'flex-col')}>

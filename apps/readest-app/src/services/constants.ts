@@ -94,6 +94,7 @@ export const DEFAULT_BOOKORBIT_SETTINGS = {
   syncNotes: true,
   syncStats: true,
   syncBookStates: true,
+  autoSync: true,
 } as BookOrbitSettings;
 
 export const READWISE_API_BASE_URL = 'https://readwise.io/api/v2';
@@ -204,6 +205,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
       refresh: null,
     },
   },
+  gamepadEnabled: true,
   openLastBooks: false,
   lastOpenBooks: [],
   autoImportBooksOnOpen: false,
@@ -343,6 +345,7 @@ export const DEFAULT_BOOK_LAYOUT: BookLayout = {
   scrolled: false,
   scrolledDirection: 'vertical',
   webtoonMode: false,
+  lockHorizontalPan: false,
   noContinuousScroll: false,
   disableClick: false,
   disableSwipe: false,
@@ -484,6 +487,7 @@ export const DEFAULT_TTS_CONFIG: TTSConfig = {
   ttsHighlightGranularity: 'word',
   ttsMediaMetadata: 'sentence',
   ttsPlayerStyle: 'full',
+  ttsSkipInlineAnnotations: false,
 };
 
 export const DEFAULT_TRANSLATOR_CONFIG: TranslatorConfig = {
@@ -957,6 +961,12 @@ export const CHECK_UPDATE_INTERVAL_SEC = 24 * 60 * 60;
 export const MAX_ZOOM_LEVEL = 500;
 export const MIN_ZOOM_LEVEL = 50;
 export const ZOOM_STEP = 10;
+
+// Reflowable books have no scale factor, so the zoom shortcuts step the book's
+// own font size instead (issue #5694). The bounds match Settings > Font.
+export const MAX_FONT_SIZE = 120;
+export const MIN_FONT_SIZE = 8;
+export const FONT_SIZE_STEP = 1;
 
 export const MAX_CONTRAST = 300;
 export const MIN_CONTRAST = 50;

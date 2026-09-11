@@ -29,11 +29,12 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useCustomOPDSStore } from '@/store/customOPDSStore';
 import { useABSServerStore } from '@/store/absServerStore';
 import { useFileSyncStore } from '@/store/fileSyncStore';
+import { useLocalSendStore } from '@/store/localsendStore';
 import { CatalogManager } from '@/app/opds/components/CatalogManager';
 import { saveSysSettings } from '@/helpers/settings';
 import { isCloudSyncAllowed } from '@/utils/access';
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
-import { isLocalSendEnabled } from '@/services/localsend/devicePrefs';
+import { getLocalSendAlias, isLocalSendEnabled } from '@/services/localsend/devicePrefs';
 import { getGoogleWebClientId } from '@/services/sync/providers/gdrive/buildGoogleDriveProvider';
 import { getMicrosoftClientId } from '@/services/sync/providers/onedrive/buildOneDriveProvider';
 import { isICloudSupportedPlatform } from '@/services/sync/providers/icloud/buildICloudProvider';
@@ -57,6 +58,7 @@ import {
   canToggleCloudProvider,
   getReadestCloudRowStatus,
   getThirdPartyRowStatus,
+  shouldShowCloudProviderBadge,
 } from './integrations/cloudSyncStatus';
 import {
   getCloudSyncProviders,
@@ -110,6 +112,9 @@ const IntegrationsPanel: React.FC = () => {
   const opdsCount = opdsCatalogs.filter((c) => !c.deletedAt).length;
   const absServers = useABSServerStore((s) => s.servers);
   const absCount = absServers.filter((s) => !s.deletedAt).length;
+  // The device name Nearby BookDrop announces once its service is running,
+  // so the integrations row can show it in place of a bare "On".
+  const localSendAlias = useLocalSendStore((s) => s.status?.alias);
   // Surface a library-wide WebDAV sync that's mid-flight in the row's
   // status line. Keeps the user from feeling like the run was lost
   // when they back out of the WebDAV sub-page or close the dialog.
@@ -138,13 +143,13 @@ const IntegrationsPanel: React.FC = () => {
   // back on. The `?? 'free'` keeps the (re-gated) loading state non-premium.
   const { userProfilePlan, customizationPurchased } = useQuotaStats();
   const isCloudSyncPremium = isCloudSyncAllowed(userProfilePlan ?? 'free', customizationPurchased);
-  // Only surface the tier chip to users who cannot use the feature yet — signed
-  // out (known immediately), or signed in on a plan without cloud sync (known
-  // once the plan resolves). An entitled user already has it, so the badge is
-  // noise. Suppressing it while a signed-in user's plan is still loading avoids
-  // flashing the chip at a premium user on every open.
-  const premiumBadge =
-    !user || (userProfilePlan !== undefined && !isCloudSyncPremium) ? _('Premium') : undefined;
+  const premiumBadge = shouldShowCloudProviderBadge({
+    signedIn: !!user,
+    planLoading: userProfilePlan === undefined,
+    isPremium: isCloudSyncPremium,
+  })
+    ? _('Premium')
+    : undefined;
 
   const [subPage, setSubPage] = useState<SubPage>(null);
 
@@ -581,6 +586,11 @@ const IntegrationsPanel: React.FC = () => {
   const opdsStatus =
     opdsCount > 0 ? _('{{count}} catalog', { count: opdsCount }) : _('No catalogs');
   const absStatus = absCount > 0 ? _('{{count}} server', { count: absCount }) : _('No servers');
+  // Enabled rows show the announced device name (falling back to the stored
+  // custom alias, then a bare "On" until the service reports its alias).
+  const localSendStatus = !isLocalSendEnabled()
+    ? _('Off')
+    : localSendAlias || getLocalSendAlias() || _('On');
 
   return (
     <div className='my-4 w-full space-y-6'>
@@ -791,7 +801,7 @@ const IntegrationsPanel: React.FC = () => {
               <IntegrationRow
                 icon={RiWifiLine}
                 title={_('Nearby BookDrop')}
-                status={isLocalSendEnabled() ? _('On') : _('Off')}
+                status={localSendStatus}
                 onClick={() => setSubPage('localsend')}
               />
             )}

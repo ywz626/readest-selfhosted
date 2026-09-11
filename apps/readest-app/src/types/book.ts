@@ -161,10 +161,9 @@ export interface Book {
   // every import, like `format` — not user data, so it needs no LWW timestamp.
   hasNarration?: boolean;
   duration?: number; // total audio length in seconds (ABS audiobooks)
-  // Marks this ABS stub as a podcast show rather than an audiobook. Audiobook
-  // shows remain unmarked (absMediaType undefined) — presence of the field
-  // set to 'podcast' is the only signal.
-  absMediaType?: 'podcast';
+  // Marks this ABS stub as a podcast show or ebook rather than an audiobook.
+  // Audio books remain unmarked (absMediaType undefined).
+  absMediaType?: 'podcast' | 'ebook';
   // Episode count for an ABS podcast show stub. Drives the library grid's
   // episode-count badge and lets reconcileAbsBooks detect a new episode as a
   // change even though title/author/duration are otherwise unchanged.
@@ -245,6 +244,9 @@ export interface BookLayout {
   scrolled: boolean;
   scrolledDirection: 'vertical' | 'horizontal';
   webtoonMode: boolean;
+  /* Fixed-layout only: freeze the horizontal pan offset of a zoomed page so it
+     can't drift sideways out of alignment while scrolling (#5976). */
+  lockHorizontalPan: boolean;
   noContinuousScroll: boolean;
   disableClick: boolean;
   disableSwipe: boolean;
@@ -401,6 +403,7 @@ export interface TTSConfig {
   ttsHighlightGranularity: TTSHighlightGranularity;
   ttsMediaMetadata: TTSMediaMetadataMode;
   ttsPlayerStyle: TTSPlayerStyle;
+  ttsSkipInlineAnnotations: boolean;
 }
 
 export interface TranslatorConfig {
