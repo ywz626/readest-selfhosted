@@ -54,6 +54,7 @@ import { useDemoBooks } from './hooks/useDemoBooks';
 import { useBooksSync } from './hooks/useBooksSync';
 import { useLibraryFileSync } from './hooks/useLibraryFileSync';
 import { useBookTransferActions } from './hooks/useBookTransferActions';
+import { useOpenBook } from './hooks/useOpenBook';
 import { useAutoImportFolders } from './hooks/useAutoImportFolders';
 import { useInboxDrainer } from '@/hooks/useInboxDrainer';
 import { useOPDSSubscriptions } from '@/hooks/useOPDSSubscriptions';
@@ -111,6 +112,7 @@ import {
 } from './utils/libraryUtils';
 import Spinner from '@/components/Spinner';
 import LibraryHeader from './components/LibraryHeader';
+import RandomPickDialog from './components/randompick/RandomPickDialog';
 import Bookshelf from './components/Bookshelf';
 import LibraryEmptyState from './components/LibraryEmptyState';
 import ImportMenuPopup from './components/ImportMenuPopup';
@@ -258,6 +260,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const [showAddFeed, setShowAddFeed] = useState(false);
   const [showWebSources, setShowWebSources] = useState(false);
   const [showImportNovel, setShowImportNovel] = useState(false);
+  const [showRandomPick, setShowRandomPick] = useState(false);
   const [importMenuAnchor, setImportMenuAnchor] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
   // Seed from the library store: if we already have books in memory (the
@@ -1160,6 +1163,10 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     setBooksTransferProgress,
   );
 
+  // 随机选书弹窗复用同一个「打开书籍」流程：云同步书籍按需下载，
+  // 失效的本地记录会被剔除而不是把用户送进打不开的阅读器。
+  const { openBook } = useOpenBook({ setLoading, handleBookDownload });
+
   const handleBookDelete = (deleteAction: DeleteAction) => {
     return async (book: Book, syncBooks = true) => {
       const deletionMessages = {
@@ -1923,6 +1930,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           }
           onOpenCatalogManager={handleShowOPDSDialog}
           onOpenFeeds={handleShowFeeds}
+          onOpenRandomPick={() => setShowRandomPick(true)}
           onToggleSelectMode={() => handleSetSelectMode(!isSelectMode)}
           onSelectAll={handleSelectAll}
           onDeselectAll={handleDeselectAll}
@@ -2117,6 +2125,19 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       {isTransferQueueOpen && (
         <ModalPortal>
           <TransferQueuePanel />
+        </ModalPortal>
+      )}
+      {showRandomPick && (
+        <ModalPortal showOverlay={false}>
+          <RandomPickDialog
+            onClose={() => setShowRandomPick(false)}
+            onOpenBook={(book) => {
+              // 先关弹窗再进阅读器：openBook 对不可用的书会提示并停留在书架，
+              // 此时留着弹窗会挡住提示。
+              setShowRandomPick(false);
+              void openBook(book);
+            }}
+          />
         </ModalPortal>
       )}
       <AboutWindow />

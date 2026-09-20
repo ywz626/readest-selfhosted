@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import React, { useRef } from 'react';
-import { FaChevronDown, FaSearch } from 'react-icons/fa';
+import { FaChevronDown, FaDice, FaSearch } from 'react-icons/fa';
 import { MdManageSearch } from 'react-icons/md';
 import { PiPlus } from 'react-icons/pi';
 import { PiSelectionAll, PiSelectionAllFill } from 'react-icons/pi';
@@ -36,6 +36,7 @@ interface LibraryHeaderProps {
   onToggleSelectMode: () => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onOpenRandomPick: () => void;
   searchQuery: string;
   searchTarget: LibrarySearchTarget;
   searchConfig: LibrarySearchConfig;
@@ -57,6 +58,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
   onToggleSelectMode,
   onSelectAll,
   onDeselectAll,
+  onOpenRandomPick,
   searchQuery,
   searchTarget,
   searchConfig,
@@ -197,6 +199,15 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
             {searchTarget !== 'text' && (
               <>
                 <span className='bg-base-content/50 mx-2 h-4 w-[0.5px]'></span>
+                <button
+                  type='button'
+                  onClick={onOpenRandomPick}
+                  aria-label={_('Random Pick')}
+                  title={_('Random Pick')}
+                  className='exclude-title-bar-mousedown h-6'
+                >
+                  <FaDice role='button' className='text-base-content/60 h-5 w-5' />
+                </button>
                 <Dropdown
                   label={_('Import Books')}
                   className={clsx(
