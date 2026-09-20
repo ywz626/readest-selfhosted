@@ -49,6 +49,25 @@ export const LibraryGroupByType = {
 
 export type LibraryGroupByType = (typeof LibraryGroupByType)[keyof typeof LibraryGroupByType];
 
+/**
+ * 随机选书的候选池筛选规则。
+ *
+ * 设备本地偏好：刻意不进 SETTINGS_WHITELIST（与 libraryGroupBy 一致），
+ * 否则「在 A 设备排除掉的分组在 B 设备也被排除」会非常意外。
+ */
+export interface RandomPickRules {
+  /** 分组全路径白名单。空数组表示不限制（全库） */
+  includeGroups: string[];
+  /** 分组全路径黑名单，在白名单结果之上剔除，优先级更高 */
+  excludeGroups: string[];
+  /** 被排除书籍的 hash */
+  excludeBooks: string[];
+  /** 本次会话内不重复抽同一本书 */
+  avoidRepeats: boolean;
+  /** 跳过滚轮动画，直接出结果 */
+  skipAnimation: boolean;
+}
+
 export type KOSyncChecksumMethod = 'binary' | 'filename';
 export type KOSyncStrategy = 'prompt' | 'silent' | 'send' | 'receive';
 
@@ -492,6 +511,8 @@ export interface SystemSettings {
   libraryHideCovers: boolean;
   /** Show the recently-read carousel at the top of the library (issue #3797). */
   libraryRecentShelfEnabled: boolean;
+  /** 随机选书的候选池筛选规则。设备本地，不参与设置同步。 */
+  randomPickRules?: RandomPickRules;
   /**
    * Library page background texture, configured independently from the reader
    * background (issue #4743). When any of these is undefined the library

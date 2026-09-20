@@ -24,6 +24,7 @@ import {
   LibraryGroupByType,
   LibrarySortByType,
   NotionSettings,
+  RandomPickRules,
   ReadSettings,
   ReadwiseSettings,
   SystemSettings,
@@ -183,6 +184,14 @@ export const DEFAULT_ICLOUD_SETTINGS = {
   lastSyncedAt: 0,
 } as ICloudSettings;
 
+export const DEFAULT_RANDOM_PICK_RULES: RandomPickRules = {
+  includeGroups: [],
+  excludeGroups: [],
+  excludeBooks: [],
+  avoidRepeats: true,
+  skipAnimation: false,
+};
+
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   keepLogin: false,
   alwaysOnTop: false,
@@ -225,6 +234,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   librarySkeuomorphicCovers: false,
   libraryHideCovers: false,
   libraryRecentShelfEnabled: false,
+  randomPickRules: DEFAULT_RANDOM_PICK_RULES,
 
   metadataSeriesCollapsed: false,
   metadataOthersCollapsed: false,
