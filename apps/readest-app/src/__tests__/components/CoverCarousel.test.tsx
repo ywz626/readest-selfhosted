@@ -88,6 +88,23 @@ describe('CoverCarousel', () => {
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
+  it('starts each spin from the beginning of the track', () => {
+    const onSettled = vi.fn();
+    const { container, rerender } = render(
+      <CoverCarousel track={track} spinning={false} skipAnimation={false} onSettled={onSettled} />,
+    );
+    const styleOf = () => container.querySelector('.will-change-transform')!.getAttribute('style')!;
+
+    // 空闲时停在轨道起点，这样点「开始随机」才有整条轨道可以滚
+    expect(styleOf()).toContain('translate3d(0px');
+    expect(styleOf()).toContain('transform 0ms');
+
+    // 开抽后位移到目标位，并带上完整的过渡时长
+    rerender(<CoverCarousel track={track} spinning skipAnimation={false} onSettled={onSettled} />);
+    expect(styleOf()).not.toContain('translate3d(0px');
+    expect(styleOf()).toContain('transform 2200ms');
+  });
+
   it('does not settle twice when the transition and the timer both fire', () => {
     vi.useFakeTimers();
     const onSettled = vi.fn();

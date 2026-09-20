@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { IoMdCloseCircle } from 'react-icons/io';
 
 import { useEnv } from '@/context/EnvContext';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
@@ -79,15 +80,19 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
   );
   const groupCounts = useMemo(() => buildGroupCounts(visibleLibrary), [visibleLibrary]);
 
-  // 抽奖前的静态占位轨道：取候选池正中间那本作为「高亮位」，纯装饰。
-  // 已经抽过奖（track 非空）后不再计算：否则每次阅读进度更新都会白建一条
-  // 36 张封面的轨道，而它永远不会被显示。
+  // 预览轨道只跟候选池的「成员集合」绑定：书架后台同步（阅读进度、封面缩略图）
+  // 会不断换掉 visibleLibrary 的引用，若跟着它重建，静态预览就会不停换书。
+  const poolKey = useMemo(
+    () => candidatePool.pool.map((book) => book.hash).join('|'),
+    [candidatePool],
+  );
   const previewTrack = useMemo(() => {
     if (track) return null;
     const { pool } = candidatePool;
     if (pool.length === 0) return null;
     return buildCarouselTrack(pool, pool[Math.floor(pool.length / 2)]!);
-  }, [track, candidatePool]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track, poolKey]);
 
   const displayTrack = track ?? previewTrack;
 
@@ -149,14 +154,28 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
       ref={divRef}
       role='dialog'
       aria-label={_('Random Pick')}
-      className='fixed inset-0 flex items-center justify-center'
+      className='fixed inset-0 flex items-center justify-center bg-black/40'
       onClick={onClose}
     >
       <div
         className='modal-box bg-base-100 flex max-h-[88%] w-[95%] max-w-[760px] flex-col overflow-hidden rounded-2xl p-4 shadow-xl sm:w-[76%]'
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 className='mb-3 text-center text-lg font-bold'>{_('Random Pick')}</h2>
+        {/* 弹窗是 fixed inset-0，会盖住窗口标题栏上的原生关闭按钮，
+            因此必须自带一个明确的关闭入口。 */}
+        <div className='mb-3 flex items-center justify-between gap-2'>
+          <span className='w-6 shrink-0' />
+          <h2 className='truncate text-lg font-bold'>{_('Random Pick')}</h2>
+          <button
+            type='button'
+            aria-label={_('Close')}
+            title={_('Close')}
+            onClick={onClose}
+            className='text-base-content/50 hover:text-base-content w-6 shrink-0'
+          >
+            <IoMdCloseCircle className='mx-auto h-5 w-5' />
+          </button>
+        </div>
         <button
           type='button'
           aria-expanded={filtersOpen}
@@ -192,8 +211,9 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
                   {_('No books match the current filters')}
                 </div>
               )}
+              {/* 覆盖层不透明：抽中后轨道会瞬时退回起点，不能让这一步透出来 */}
               {result && (
-                <div className='bg-base-100/90 absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm'>
+                <div className='bg-base-100 absolute inset-0 flex items-center justify-center rounded-xl'>
                   <RandomPickResultCard
                     book={result}
                     onStartReading={() => onOpenBook(result)}

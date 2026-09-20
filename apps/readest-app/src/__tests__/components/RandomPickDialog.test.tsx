@@ -124,6 +124,13 @@ describe('RandomPickDialog', () => {
     expect(useRandomPickStore.getState().pickedHashes.size).toBe(0);
   });
 
+  it('closes from the dialog close button', () => {
+    const onClose = vi.fn();
+    render(<RandomPickDialog onClose={onClose} onOpenBook={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('Close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('toggles the collapsible filter drawer', () => {
     render(<RandomPickDialog onClose={vi.fn()} onOpenBook={vi.fn()} />);
     const toggle = screen.getByText('Filters');
