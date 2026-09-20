@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useEnv } from '@/context/EnvContext';
@@ -47,6 +48,12 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
   const [result, setResult] = useState<Book | null>(null);
   const [skipRequested, setSkipRequested] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * 移动端把筛选面板收成可展开抽屉：面板本身在手机上要占满一屏以上，
+   * 展开状态下「开始随机」按钮会被推到屏幕外，抽中后结果也落在视口之外。
+   * 桌面端（sm 及以上）始终展开，这个开关不生效。
+   */
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const divRef = useKeyDownActions({ onCancel: onClose });
 
@@ -62,6 +69,9 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
   );
   // 关闭弹窗前把还在防抖窗口里的规则落盘，否则「改完立刻关」会丢配置。
   useEffect(() => () => persistRules.flush(), [persistRules]);
+  // isSpinning 的生命周期属于弹窗：动画途中被关闭时必须复位，否则下次打开
+  // 按钮会直接渲染成「跳过」。
+  useEffect(() => () => setSpinning(false), [setSpinning]);
 
   const candidatePool = useMemo(
     () => buildCandidatePool(visibleLibrary, rules),
@@ -70,11 +80,14 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
   const groupCounts = useMemo(() => buildGroupCounts(visibleLibrary), [visibleLibrary]);
 
   // 抽奖前的静态占位轨道：取候选池正中间那本作为「高亮位」，纯装饰。
+  // 已经抽过奖（track 非空）后不再计算：否则每次阅读进度更新都会白建一条
+  // 36 张封面的轨道，而它永远不会被显示。
   const previewTrack = useMemo(() => {
+    if (track) return null;
     const { pool } = candidatePool;
     if (pool.length === 0) return null;
     return buildCarouselTrack(pool, pool[Math.floor(pool.length / 2)]!);
-  }, [candidatePool]);
+  }, [track, candidatePool]);
 
   const displayTrack = track ?? previewTrack;
 
@@ -144,8 +157,16 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className='mb-3 text-center text-lg font-bold'>{_('Random Pick')}</h2>
+        <button
+          type='button'
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((prev) => !prev)}
+          className='btn btn-ghost btn-sm mb-2 self-center sm:hidden'
+        >
+          {_('Filters')}
+        </button>
         <div className='grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto sm:grid-cols-[220px_1fr]'>
-          <div className='min-h-0 sm:overflow-y-auto'>
+          <div className={clsx('min-h-0 sm:overflow-y-auto', !filtersOpen && 'hidden sm:block')}>
             <RandomPickFilters
               rules={rules}
               books={visibleLibrary}
@@ -156,7 +177,9 @@ const RandomPickDialog: React.FC<RandomPickDialogProps> = ({ onClose, onOpenBook
             />
           </div>
           <div className='flex min-w-0 flex-col'>
-            <div className='relative' onClick={handleSkip}>
+            {/* min-h 保证结果卡片（封面 132px + padding）能完整落在舞台内，
+                否则 absolute inset-0 的覆盖层会溢出并压住下方的按钮行。 */}
+            <div className='relative min-h-[176px]' onClick={handleSkip}>
               {displayTrack ? (
                 <CoverCarousel
                   track={displayTrack}

@@ -2313,5 +2313,6 @@
   "Spin Again": "再抽一次",
   "Start Reading": "开始阅读",
   "Restore Defaults": "恢复默认",
-  "{{count}}% read": "已读 {{count}}%"
+  "{{count}}% read": "已读 {{count}}%",
+  "Filters": "筛选条件"
 }

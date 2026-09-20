@@ -204,9 +204,9 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
                   onClick={onOpenRandomPick}
                   aria-label={_('Random Pick')}
                   title={_('Random Pick')}
-                  className='exclude-title-bar-mousedown h-6'
+                  className='exclude-title-bar-mousedown touch-target h-6'
                 >
-                  <FaDice role='button' className='text-base-content/60 h-5 w-5' />
+                  <FaDice role='none' className='text-base-content/60 h-5 w-5' />
                 </button>
                 <Dropdown
                   label={_('Import Books')}

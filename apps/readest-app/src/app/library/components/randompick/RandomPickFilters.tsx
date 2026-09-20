@@ -124,7 +124,11 @@ const RandomPickFilters: React.FC<RandomPickFiltersProps> = ({
           <GroupMultiPicker
             selectedGroups={paths}
             groupCounts={groupCounts}
-            onSelect={(name) => addGroup(target, name)}
+            onSelect={(name) => {
+              addGroup(target, name);
+              // 选择器是单选语义，选完即收起，避免用户误以为还要再点一次确认
+              setPickerTarget(null);
+            }}
             onClose={() => setPickerTarget(null)}
           />
         </div>

@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const h = vi.hoisted(() => ({ saveSettings: vi.fn(async () => {}) }));
 
 vi.mock('next/image', () => ({
   __esModule: true,
@@ -16,7 +18,7 @@ vi.mock('@/services/environment', () => ({
 
 vi.mock('@/context/EnvContext', () => ({
   useEnv: () => ({
-    envConfig: { getAppService: async () => ({ saveSettings: vi.fn(async () => {}) }) },
+    envConfig: { getAppService: async () => ({ saveSettings: h.saveSettings }) },
     appService: null,
   }),
 }));
@@ -65,6 +67,7 @@ beforeEach(() => {
     pickCount: 0,
   });
   setLibrary([dune]);
+  h.saveSettings.mockClear();
 });
 
 afterEach(() => {
@@ -119,6 +122,33 @@ describe('RandomPickDialog', () => {
     fireEvent.click(screen.getByText('Reset Picked'));
     expect(useRandomPickStore.getState().pickCount).toBe(0);
     expect(useRandomPickStore.getState().pickedHashes.size).toBe(0);
+  });
+
+  it('toggles the collapsible filter drawer', () => {
+    render(<RandomPickDialog onClose={vi.fn()} onOpenBook={vi.fn()} />);
+    const toggle = screen.getByText('Filters');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('persists rule changes through the debounced settings write', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<RandomPickDialog onClose={vi.fn()} onOpenBook={vi.fn()} />);
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Skip Animation' }));
+      expect(h.saveSettings).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(h.saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          randomPickRules: expect.objectContaining({ skipAnimation: true }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('narrows the candidate pool when a group is added to the include list', async () => {
