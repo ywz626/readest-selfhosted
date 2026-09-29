@@ -14,6 +14,7 @@ import { SettingsPanelPanelProp } from './SettingsDialog';
 import { annotationToolQuickActions } from '@/app/reader/components/annotator/AnnotationTools';
 import { applyPageTurnAttributes } from '@/app/reader/hooks/useCapturedTurn';
 import { isTauriAppPlatform } from '@/services/environment';
+import { DEFAULT_SYSTEM_SETTINGS } from '@/services/constants';
 import {
   BoxedList,
   NavigationRow,
@@ -48,6 +49,9 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   );
   const [isDisableClick, setIsDisableClick] = useState(viewSettings.disableClick);
   const [isDisableSwipe, setIsDisableSwipe] = useState(viewSettings.disableSwipe);
+  const [disablePullDownToBookmark, setDisablePullDownToBookmark] = useState(
+    viewSettings.disablePullDownToBookmark ?? false,
+  );
   const [fullscreenClickArea, setFullscreenClickArea] = useState(viewSettings.fullscreenClickArea);
   const [swapClickArea, setSwapClickArea] = useState(viewSettings.swapClickArea);
   const [isDisableDoubleClick, setIsDisableDoubleClick] = useState(viewSettings.disableDoubleClick);
@@ -71,6 +75,10 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   const [screenWakeLock, setScreenWakeLock] = useState(settings.screenWakeLock);
   const [autohideCursor, setAutohideCursor] = useState(settings.autohideCursor);
   const [gamepadEnabled, setGamepadEnabled] = useState(settings.gamepadEnabled);
+  const [reverseWheelPaging, setReverseWheelPaging] = useState(settings.reverseWheelPaging);
+  const [hideBookshelfPageButtons, setHideBookshelfPageButtons] = useState(
+    settings.hideBookshelfPageButtons,
+  );
   const [allowScript, setAllowScript] = useState(viewSettings.allowScript);
   const [isAutoCheckUpdates, setIsAutoCheckUpdates] = useState(settings.autoCheckUpdates);
   const [isNightlyChannel, setIsNightlyChannel] = useState(settings.updateChannel === 'nightly');
@@ -102,6 +110,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       showPaginationButtons: setShowPaginationButtons,
       disableClick: setIsDisableClick,
       disableSwipe: setIsDisableSwipe,
+      disablePullDownToBookmark: setDisablePullDownToBookmark,
       swapClickArea: setSwapClickArea,
       animated: setAnimated,
       isEink: setIsEink,
@@ -119,6 +128,13 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       false,
       true,
     );
+    if (appService?.hasUpdater) {
+      const { autoCheckUpdates = true, updateChannel = 'stable' } = DEFAULT_SYSTEM_SETTINGS;
+      saveSysSettings(envConfig, 'autoCheckUpdates', autoCheckUpdates);
+      saveSysSettings(envConfig, 'updateChannel', updateChannel);
+      setIsAutoCheckUpdates(autoCheckUpdates);
+      setIsNightlyChannel(updateChannel === 'nightly');
+    }
     pageTurnerResetRef.current();
     // Keyboard/mouse bindings are NOT reset here — they are device-local and
     // have their own "Reset all" inside the Keyboard Shortcuts sub-page.
@@ -204,6 +220,18 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   }, [isDisableSwipe]);
 
   useEffect(() => {
+    saveViewSettings(
+      envConfig,
+      bookKey,
+      'disablePullDownToBookmark',
+      disablePullDownToBookmark,
+      false,
+      false,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disablePullDownToBookmark]);
+
+  useEffect(() => {
     saveViewSettings(envConfig, bookKey, 'disableDoubleClick', isDisableDoubleClick, false, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDisableDoubleClick]);
@@ -282,6 +310,18 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
     saveSysSettings(envConfig, 'gamepadEnabled', gamepadEnabled);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gamepadEnabled]);
+
+  useEffect(() => {
+    if (reverseWheelPaging === settings.reverseWheelPaging) return;
+    saveSysSettings(envConfig, 'reverseWheelPaging', reverseWheelPaging);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reverseWheelPaging]);
+
+  useEffect(() => {
+    if (hideBookshelfPageButtons === settings.hideBookshelfPageButtons) return;
+    saveSysSettings(envConfig, 'hideBookshelfPageButtons', hideBookshelfPageButtons);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideBookshelfPageButtons]);
 
   useEffect(() => {
     if (viewSettings.allowScript === allowScript) return;
@@ -459,6 +499,12 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
         data-setting-id='settings.control.enableQuickActions'
       >
         <SettingsSwitchRow
+          label={_('Pull-Down to Bookmark')}
+          checked={!disablePullDownToBookmark}
+          onChange={() => setDisablePullDownToBookmark(!disablePullDownToBookmark)}
+          data-setting-id='settings.control.disablePullDownToBookmark'
+        />
+        <SettingsSwitchRow
           label={_('Enable Quick Actions')}
           checked={enableAnnotationQuickActions}
           onChange={() => setEnableAnnotationQuickActions(!enableAnnotationQuickActions)}
@@ -520,6 +566,15 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
           onChange={() => setIsColorEink(!isColorEink)}
           data-setting-id='settings.control.colorEinkMode'
         />
+        <SettingsSwitchRow
+          label={_('Hide Bookshelf Buttons')}
+          description={_('Previous and Next in the library')}
+          checked={hideBookshelfPageButtons}
+          // The library follows the global E-Ink setting, not this book's.
+          disabled={!settings.globalViewSettings?.isEink}
+          onChange={() => setHideBookshelfPageButtons(!hideBookshelfPageButtons)}
+          data-setting-id='settings.control.hideBookshelfPageButtons'
+        />
         {appService?.isMobileApp && (
           <SettingsSwitchRow
             label={_('System Screen Brightness')}
@@ -552,6 +607,13 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             data-setting-id='settings.control.autohideCursor'
           />
         )}
+        <SettingsSwitchRow
+          label={_('Reverse Mouse Wheel')}
+          description={_('Scroll up for the next page')}
+          checked={reverseWheelPaging}
+          onChange={() => setReverseWheelPaging(!reverseWheelPaging)}
+          data-setting-id='settings.control.reverseWheelPaging'
+        />
         <SettingsSwitchRow
           label={_('Gamepad Support')}
           description={_('Navigate with a connected controller')}

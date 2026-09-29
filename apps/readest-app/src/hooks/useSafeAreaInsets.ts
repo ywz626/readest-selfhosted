@@ -1,4 +1,5 @@
 import { useCallback, useRef, useEffect } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { Insets } from '@/types/misc';
@@ -9,7 +10,7 @@ export const useSafeAreaInsets = () => {
   const { appService } = useEnv();
   const currentInsets = useRef({ top: 0, right: 0, bottom: 0, left: 0 });
 
-  const { updateSafeAreaInsets } = useThemeStore();
+  const { updateSafeAreaInsets, updateScreenCornerRadius } = useThemeStore();
 
   const updateInsets = (insets: Insets) => {
     const { top, right, bottom, left } = currentInsets.current;
@@ -51,6 +52,7 @@ export const useSafeAreaInsets = () => {
             left: Math.round(response.left),
           };
           updateInsets(insets);
+          updateScreenCornerRadius(Math.round(response.bottomCornerRadius ?? 0));
         }
       });
     } else if (hasCustomProperties) {
@@ -94,6 +96,14 @@ export const useSafeAreaInsets = () => {
     };
     window.addEventListener('focus', handleFocus);
 
+    // A WebView started by CarPlay is already visible to WebKit when its
+    // phone scene attaches, so DOM visibility/focus events may not fire.
+    const unlistenFocus = appService?.isIOSApp
+      ? getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+          if (focused) onUpdateInsets();
+        })
+      : undefined;
+
     return () => {
       if (window.screen?.orientation) {
         window.screen.orientation.removeEventListener('change', onUpdateInsets);
@@ -102,6 +112,7 @@ export const useSafeAreaInsets = () => {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
+      void unlistenFocus?.then((unlisten) => unlisten());
     };
   }, [onUpdateInsets]);
 

@@ -7,6 +7,7 @@ import StoreKit
 import SwiftRs
 import Tauri
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import UniformTypeIdentifiers
 import WebKit
 import os
@@ -59,6 +60,10 @@ class InterceptKeysRequestArgs: Decodable {
 
 class LockScreenOrientationRequestArgs: Decodable {
   let orientation: String?
+}
+
+class SetScreenWakeLockRequestArgs: Decodable {
+  let enabled: Bool
 }
 
 class SetScreenBrightnessRequestArgs: Decodable {
@@ -343,6 +348,78 @@ class PencilGestureHandler: NSObject, UIPencilInteractionDelegate {
   }
 }
 
+// WebKit suppresses DOM touchmove AND touchend near native selection handles
+// (311216@main, iPadOS 27). Observe the UIKit stream without recognizing or
+// preventing a gesture, so the reader can dwell at an edge and cancel on release.
+private final class SelectionTouchObserver: UIGestureRecognizer {
+  private weak var webView: WKWebView?
+  private var trackedTouch: UITouch?
+  private var lastMoveTime: TimeInterval = 0
+
+  init(webView: WKWebView) {
+    self.webView = webView
+    super.init(target: nil, action: nil)
+    cancelsTouchesInView = false
+    delaysTouchesBegan = false
+    delaysTouchesEnded = false
+    allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+  }
+
+  override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+  override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+    false
+  }
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+    // A second finger is a pinch, not a selection-handle drag.
+    guard trackedTouch == nil, touches.count == 1, let touch = touches.first else {
+      if let touch = trackedTouch { forward("touchcancel", touch: touch) }
+      state = .failed
+      return
+    }
+    trackedTouch = touch
+    lastMoveTime = 0
+    forward("touchstart", touch: touch)
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let touch = trackedTouch, touches.contains(touch) else { return }
+    // Match Android's ~10/s bridge rate; start/end/cancel are never throttled.
+    guard touch.timestamp - lastMoveTime >= 0.1 else { return }
+    lastMoveTime = touch.timestamp
+    forward("touchmove", touch: touch)
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+    guard let touch = trackedTouch, touches.contains(touch) else { return }
+    forward("touchend", touch: touch)
+    state = .failed
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+    if let touch = trackedTouch { forward("touchcancel", touch: touch) }
+    state = .failed
+  }
+
+  override func reset() {
+    trackedTouch = nil
+    super.reset()
+  }
+
+  private func forward(_ type: String, touch: UITouch) {
+    guard let webView = webView else { return }
+    let point = touch.location(in: webView)
+    // The shared native-touch contract uses device pixels, not UIKit points.
+    let scale = webView.window?.screen.scale ?? UIScreen.main.scale
+    webView.evaluateJavaScript(
+      """
+      window.onNativeTouch?.({type: '\(type)', pointerId: 0,
+        x: \(point.x * scale), y: \(point.y * scale), pressure: \(touch.force),
+        pointerCount: 1, timestamp: \(touch.timestamp * 1000)});
+      """, completionHandler: nil)
+  }
+}
+
 class WebViewLifecycleManager: NSObject {
   private weak var webView: WKWebView?
   private var originalNavigationDelegate: WKNavigationDelegate?
@@ -604,6 +681,7 @@ class NativeBridgePlugin: Plugin {
     // Suppress the iOS system text-selection edit menu so it never
     // covers Readest's annotation toolbar. See ContextMenuSuppressor.
     ContextMenuSuppressor.installIfNeeded()
+    webview.addGestureRecognizer(SelectionTouchObserver(webView: webview))
 
     // Register a WKScriptMessageHandler so JS can signal when its
     // share-extension hook has mounted. On `{type: 'ready'}` we run a
@@ -1219,6 +1297,16 @@ class NativeBridgePlugin: Plugin {
   @objc public func get_system_color_scheme(_ invoke: Invoke) {
     DispatchQueue.main.async { [weak self] in
       invoke.resolve(["colorScheme": self?.systemColorScheme() ?? "light"])
+    }
+  }
+
+  @objc public func set_screen_wake_lock(_ invoke: Invoke) {
+    guard let args = try? invoke.parseArgs(SetScreenWakeLockRequestArgs.self) else {
+      return invoke.reject("Failed to parse arguments")
+    }
+    DispatchQueue.main.async {
+      UIApplication.shared.isIdleTimerDisabled = args.enabled
+      invoke.resolve()
     }
   }
 
@@ -1905,16 +1993,25 @@ class NativeBridgePlugin: Plugin {
     invoke.resolve(["success": false])
   }
 
-  @objc public func update_reading_widget(_ invoke: Invoke) {
+  @objc public func update_bookshelf_widget(_ invoke: Invoke) {
     guard let args = try? invoke.parseArgs(UpdateReadingWidgetRequestArgs.self) else {
       return invoke.reject("Failed to parse arguments")
     }
+    // The iOS widget shows books only; group tiles are an Android feature.
+    let books = args.items.compactMap { item -> UpdateReadingWidgetBookArgs? in
+      guard item.type == "book", let hash = item.hash, let coverPath = item.coverPath else {
+        return nil
+      }
+      return UpdateReadingWidgetBookArgs(
+        hash: hash, title: item.title ?? "", author: item.author ?? "",
+        percent: item.percent ?? 0, coverPath: coverPath)
+    }
     DispatchQueue.global(qos: .utility).async {
-      for book in args.books {
+      for book in books {
         ReadingWidgetWriter.writeThumbnail(hash: book.hash, sourcePath: book.coverPath)
       }
       let snapshot = ReadingWidgetWriter.Snapshot(
-        books: args.books.map {
+        books: books.map {
           .init(hash: $0.hash, title: $0.title, author: $0.author, percent: $0.percent)
         },
         sectionTitle: args.sectionTitle,
@@ -1923,6 +2020,17 @@ class NativeBridgePlugin: Plugin {
       ReadingWidgetWriter.write(snapshot: snapshot)
       invoke.resolve()
     }
+  }
+
+  // iOS has no per-instance configurable widget yet (one default snapshot,
+  // written above); these two resolve as no-ops so a caller gets a clean
+  // empty result instead of a bridge "unknown command" failure.
+  @objc public func get_bookshelf_widget_instances(_ invoke: Invoke) {
+    invoke.resolve(["instances": [] as [Any]])
+  }
+
+  @objc public func set_bookshelf_widget_catalog(_ invoke: Invoke) {
+    invoke.resolve()
   }
 
   /// Snapshot a region of the webview for the mesh page-curl texture
@@ -2250,8 +2358,18 @@ struct UpdateReadingWidgetBookArgs: Decodable {
   let percent: Int
   let coverPath: String
 }
+// One grid tile from JS: a "book" carries the book fields, a "group" other
+// fields this platform ignores.
+struct UpdateReadingWidgetItemArgs: Decodable {
+  let type: String
+  let hash: String?
+  let title: String?
+  let author: String?
+  let percent: Int?
+  let coverPath: String?
+}
 struct UpdateReadingWidgetRequestArgs: Decodable {
-  let books: [UpdateReadingWidgetBookArgs]
+  let items: [UpdateReadingWidgetItemArgs]
   let sectionTitle: String
   let emptyTitle: String
 }

@@ -74,9 +74,10 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isWheelZooming, setIsWheelZooming] = useState(false);
   const [showZoomLabel, setShowZoomLabel] = useState(true);
-  // Unlike the zoom badge the caption does not time out — it is content, not
-  // chrome — so tapping the image is what gets it off the artwork.
-  const [showCaption, setShowCaption] = useState(true);
+  // Chrome drawn over the artwork — the top-right controls and the caption —
+  // never times out on its own, so tapping the image is what gets it off the
+  // image (#5232, #6154).
+  const [showChrome, setShowChrome] = useState(true);
   const lastTouchDistance = useRef<number>(0);
   const dragStart = useRef({ x: 0, y: 0 });
   const wasDragging = useRef(false);
@@ -486,9 +487,18 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           bytes.buffer as ArrayBuffer,
           mimeType,
         );
+        if (saved) {
+          eventDispatcher.dispatch('toast', { type: 'info', message: _('Image saved to gallery') });
+          return;
+        }
+        // Some Android builds (e.g. HarmonyOS) reject the MediaStore insert;
+        // fall back to saving the image as a file via the save dialog.
+        const savedFile = await appService.saveFile(filename, bytes.buffer as ArrayBuffer, {
+          mimeType,
+        });
         eventDispatcher.dispatch('toast', {
-          type: saved ? 'info' : 'error',
-          message: saved ? _('Image saved to gallery') : _('Failed to save the image'),
+          type: savedFile ? 'info' : 'error',
+          message: savedFile ? _('Image saved successfully') : _('Failed to save the image'),
         });
         return;
       }
@@ -553,8 +563,12 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
       return;
     }
 
-    setShowZoomLabel((prev) => !prev);
-    setShowCaption((prev) => !prev);
+    // Driven off a single next value so one tap always clears everything: the
+    // zoom badge and the arrows hide themselves 2s after a zoom, and toggling
+    // them independently would bring those back instead.
+    const next = !showChrome;
+    setShowChrome(next);
+    setShowZoomLabel(next);
   };
 
   const cursorStyle = scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default';
@@ -588,15 +602,17 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
           }
         }}
       />
-      <ZoomControls
-        gridInsets={gridInsets}
-        canShare={canShare}
-        onClose={onClose}
-        onSave={handleSaveImage}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onReset={handleReset}
-      />
+      {showChrome && (
+        <ZoomControls
+          gridInsets={gridInsets}
+          canShare={canShare}
+          onClose={onClose}
+          onSave={handleSaveImage}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onReset={handleReset}
+        />
+      )}
 
       {onPrevious && showZoomLabel && (
         <button
@@ -680,7 +696,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
 
       {/* Sibling of the click-to-close container above, so reading (or
           scrolling) the description never dismisses the viewer. */}
-      {caption && showCaption && (
+      {caption && showChrome && (
         <div
           // The description comes from the book, whose language need not match
           // the UI's, so let the text pick its own direction.

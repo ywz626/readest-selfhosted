@@ -4,6 +4,7 @@ import {
   MdOutlineCloudDownload,
   MdOutlineCloudUpload,
   MdOutlineDelete,
+  MdOutlineDownloadForOffline,
   MdOutlineEdit,
   MdMenu,
   MdExpandMore,
@@ -13,11 +14,13 @@ import {
 import { Book } from '@/types/book';
 import { BookMetadata } from '@/libs/document';
 import { openExternalUrl } from '@/utils/open';
+import { sanitizeHtml } from '@/utils/sanitize';
 import { getBookGoodreadsQuery, getGoodreadsSearchUrl } from '@/utils/goodreads';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useBookReadTime } from '@/hooks/useBookReadTime';
 import { formatReadingDuration } from '@/utils/time';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useDefaultBookshelfCovers } from '@/hooks/useDefaultBookshelfCovers';
 import { useEnv } from '@/context/EnvContext';
 import {
   formatAuthors,
@@ -49,6 +52,10 @@ interface BookDetailViewProps {
   onUpload?: () => void;
   onShare?: () => void;
   onExport?: () => void;
+  /** Download an Audiobookshelf book for offline use (#6256). */
+  onDownloadOffline?: () => void;
+  /** Set when the offline download needs an upgrade; shown as a badge. */
+  offlinePremiumLabel?: string;
   onMetadataValueClick?: (type: 'tag' | 'subject', value: string) => void;
 }
 
@@ -65,12 +72,15 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
   onUpload,
   onShare,
   onExport,
+  onDownloadOffline,
+  offlinePremiumLabel,
   onMetadataValueClick,
 }) => {
   const _ = useTranslation();
   const { envConfig } = useEnv();
   const { settings } = useSettingsStore();
   const readTimeSecs = useBookReadTime(book.hash);
+  const { skeuomorphicCovers } = useDefaultBookshelfCovers();
   const [subjectsExpanded, setSubjectsExpanded] = useState(false);
   const { coverSrc, openCoverViewer, closeCoverViewer } = useBookCoverViewer(book);
   const subjects = getContributorNames(metadata?.subject);
@@ -123,7 +133,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
           className='me-6 aspect-[28/41] h-32 shadow-lg sm:me-10'
           onClick={openCoverViewer}
         >
-          <BookCover mode='list' book={book} showSpine={settings.librarySkeuomorphicCovers} />
+          <BookCover mode='list' book={book} showSpine={skeuomorphicCovers} />
         </button>
         {coverSrc && <BookCoverViewer src={coverSrc} onClose={closeCoverViewer} />}
         <div className='title-author flex h-32 flex-col justify-between'>
@@ -154,6 +164,19 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
             {book.downloadedAt && !isFeedBook(book) && onUpload && (
               <button onClick={onUpload} title={_('Upload to Cloud')}>
                 <MdOutlineCloudUpload className='fill-base-content' />
+              </button>
+            )}
+            {onDownloadOffline && !book.absDownloadedAt && (
+              <button
+                onClick={onDownloadOffline}
+                title={_('Download for Offline')}
+                aria-label={_('Download for Offline')}
+                className='flex items-center gap-1'
+              >
+                <MdOutlineDownloadForOffline className='fill-base-content' />
+                {offlinePremiumLabel && (
+                  <span className='badge badge-sm badge-ghost'>{offlinePremiumLabel}</span>
+                )}
               </button>
             )}
             {onDelete && (
@@ -192,7 +215,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                     transient
                     label={_('Remove from Device Only')}
                     onClick={onDeleteLocalCopy}
-                    disabled={!book.downloadedAt}
+                    disabled={!book.downloadedAt && !book.absDownloadedAt}
                   />
                 </div>
               </Dropdown>
@@ -465,7 +488,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
               <p
                 className='text-neutral-content prose prose-sm max-w-full whitespace-pre-line text-sm'
                 dangerouslySetInnerHTML={{
-                  __html: metadata?.description || _('No description available'),
+                  __html: sanitizeHtml(metadata?.description || _('No description available')),
                 }}
               ></p>
             </div>

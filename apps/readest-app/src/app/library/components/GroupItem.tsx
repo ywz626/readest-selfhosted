@@ -12,13 +12,15 @@ import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { BooksGroup } from '@/types/book';
-import { LibraryViewModeType } from '@/types/settings';
+import { LibraryViewModeType, LibraryCoverFitType } from '@/types/settings';
 import BookCover from '@/components/BookCover';
 import { useSettingsStore } from '@/store/settingsStore';
 
 interface GroupItemProps {
   mode: LibraryViewModeType;
   group: BooksGroup;
+  coverFit?: LibraryCoverFitType;
+  skeuomorphicCovers?: boolean;
   isSelectMode: boolean;
   groupSelected: boolean;
   onMoreClick?: (e: React.MouseEvent) => void;
@@ -27,6 +29,8 @@ interface GroupItemProps {
 const GroupItem: React.FC<GroupItemProps> = ({
   mode,
   group,
+  coverFit,
+  skeuomorphicCovers,
   isSelectMode,
   groupSelected,
   onMoreClick,
@@ -162,8 +166,9 @@ const GroupItem: React.FC<GroupItemProps> = ({
               >
                 <BookCover
                   book={book}
+                  coverFit={coverFit}
                   isPreview
-                  showSpine={settings.librarySkeuomorphicCovers}
+                  showSpine={skeuomorphicCovers ?? settings.librarySkeuomorphicCovers}
                   imageClassName='rounded-[2px]'
                 />
               </div>

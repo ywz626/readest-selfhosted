@@ -269,31 +269,34 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
     expect(toastCalls[0]?.[1]).toMatchObject({ type: 'info', message: '7 book(s) synced' });
   });
 
-  it('reports a failure when the file pass could not write the shared index (#5900)', async () => {
-    // library.json IS the convergence point: peers read membership, tombstones
-    // and the uploaded-file record from it. A run that uploaded books but could
-    // not write it converged nothing, and must not toast a book count.
-    routing.readestEnabled = false;
-    routing.backends = ['gdrive'];
+  it.each([{ indexPushFailed: true }, { failures: 1 }])(
+    'reports incomplete file sync: %j',
+    async (failure) => {
+      // library.json IS the convergence point: peers read membership, tombstones
+      // and the uploaded-file record from it. A run that uploaded books but could
+      // not write it converged nothing, and must not toast a book count.
+      routing.readestEnabled = false;
+      routing.backends = ['gdrive'];
 
-    const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
+      const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
 
-    const { result } = renderHook(() => useBooksSync());
+      const { result } = renderHook(() => useBooksSync());
 
-    await waitFor(() => expect(runFileLibrarySyncPass).toHaveBeenCalled());
+      await waitFor(() => expect(runFileLibrarySyncPass).toHaveBeenCalled());
 
-    dispatchSpy.mockClear();
-    runFileLibrarySyncPass.mockClear();
-    runFileLibrarySyncPass.mockResolvedValueOnce({ booksSynced: 4, indexPushFailed: true });
+      dispatchSpy.mockClear();
+      runFileLibrarySyncPass.mockClear();
+      runFileLibrarySyncPass.mockResolvedValueOnce({ booksSynced: 4, ...failure });
 
-    await act(async () => {
-      await result.current.pullLibrary(false, true);
-    });
+      await act(async () => {
+        await result.current.pullLibrary(false, true);
+      });
 
-    const toastCalls = dispatchSpy.mock.calls.filter(([event]) => event === 'toast');
-    expect(toastCalls).toHaveLength(1);
-    expect(toastCalls[0]?.[1]).toMatchObject({ type: 'error', message: 'Sync failed' });
-  });
+      const toastCalls = dispatchSpy.mock.calls.filter(([event]) => event === 'toast');
+      expect(toastCalls).toHaveLength(1);
+      expect(toastCalls[0]?.[1]).toMatchObject({ type: 'error', message: 'Sync failed' });
+    },
+  );
 
   it('still reports a combined success when the file pass fails but the native pull succeeds', async () => {
     routing.readestEnabled = true;

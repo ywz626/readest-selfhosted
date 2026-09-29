@@ -4,6 +4,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { isPWA, isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { BOOK_IDS_SEPARATOR } from '@/services/constants';
 import { AppService } from '@/types/system';
+import { windowNeedsClientOutline } from '@/utils/window';
 
 let readerWindowsCount = 0;
 const createReaderWindow = (appService: AppService, url: string) => {
@@ -21,7 +22,7 @@ const createReaderWindow = (appService: AppService, url: string) => {
     // Linux stays opaque: a transparent WebKitGTK window turns invisible when
     // its web process is busy (#3682). macOS uses native decorations instead.
     transparent: !appService.isMacOSApp && !appService.isLinuxApp,
-    shadow: appService.isMacOSApp ? undefined : true,
+    shadow: appService.isMacOSApp ? undefined : !windowNeedsClientOutline(appService),
     titleBarStyle: appService.isMacOSApp ? 'overlay' : undefined,
     // Enum ScrollBarStyle is exported as type by tauri, so it cannot be used directly.
     scrollBarStyle: (appService.osPlatform === 'windows'
@@ -83,7 +84,7 @@ export const ensureMainLibraryWindow = async (appService: AppService) => {
     // Linux stays opaque: a transparent WebKitGTK window turns invisible when
     // its web process is busy (#3682). macOS uses native decorations instead.
     transparent: !appService.isMacOSApp && !appService.isLinuxApp,
-    shadow: appService.isMacOSApp ? undefined : true,
+    shadow: appService.isMacOSApp ? undefined : !windowNeedsClientOutline(appService),
     titleBarStyle: appService.isMacOSApp ? 'overlay' : undefined,
     scrollBarStyle: (appService.osPlatform === 'windows'
       ? 'fluentOverlay'

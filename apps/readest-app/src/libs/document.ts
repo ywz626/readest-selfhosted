@@ -2,6 +2,7 @@ import { BookFormat } from '@/types/book';
 import { Collection, Contributor, Identifier, LanguageMap } from '@/utils/book';
 import { configureZip } from '@/utils/zip';
 import { stripDuplicateMarker } from '@/utils/path';
+import type { WidePagesOptions } from '@/utils/spread';
 import * as epubcfi from 'foliate-js/epubcfi.js';
 
 export const CFI = epubcfi;
@@ -45,6 +46,7 @@ export interface SectionItem {
   fragments?: Array<SectionFragment>;
 
   loadText?: () => Promise<string | null>;
+  resolveHref?: (href: string) => string;
   // Resolve a reference a script introduces after load (see observeDynamicResources).
   loadHref?: (href: string) => Promise<string>;
   createDocument: () => Promise<Document>;
@@ -122,6 +124,7 @@ export interface BookDoc {
   sections: Array<SectionItem>;
   transformTarget?: EventTarget;
   splitTOCHref(href: string): Array<string | number>;
+  isExternal?(href: string): boolean;
   getCover(): Promise<Blob | null>;
   // Present on formats that carry a real spine (EPUB); absent for the ones
   // foliate-js gives synthetic per-index CFIs. Mirrors `view.resolveCFI`.
@@ -151,10 +154,14 @@ export const EXTS: Record<BookFormat, string> = {
   FBZ: 'fbz',
   TXT: 'txt',
   MD: 'md',
+  HTML: 'html',
   // ABS books stream from the server and never have a real on-disk file, so
   // this extension is never used to write or look up a file. It exists only
   // to satisfy the Record<BookFormat, string> exhaustiveness check.
   ABS: 'abs',
+  // Same for OPDS audio: the tracks are fetched from the catalog, never stored.
+  OPDSAUDIO: 'opdsaudio',
+  BOOKORBIT: 'bookorbit',
 };
 
 export const MIMETYPES: Record<BookFormat, string[]> = {
@@ -168,8 +175,13 @@ export const MIMETYPES: Record<BookFormat, string[]> = {
   FBZ: ['application/x-zip-compressed-fb2', 'application/zip'],
   TXT: ['text/plain'],
   MD: ['text/markdown', 'text/x-markdown'],
+  HTML: ['text/html'],
   // Never matched against a real download; see the EXTS.ABS comment above.
   ABS: ['application/vnd.audiobookshelf'],
+  // OPDS audio is identified from the acquisition link (services/opds/formats),
+  // never by looking a BookFormat up here.
+  OPDSAUDIO: [],
+  BOOKORBIT: [],
 };
 
 export interface DocumentLoaderOptions {
@@ -182,6 +194,13 @@ export interface DocumentLoaderOptions {
    * EPUB when the prefetch cache is hit.
    */
   nativeFilePath?: string;
+  /**
+   * Lay out each wide page of a comic (a double-page spread stored as one
+   * image) as a spread of its own. The pages are measured up front, reading
+   * every page's header, unless `known` holds what an earlier open found; and
+   * each again as it loads, which `onFound` hears of. Only the reader asks.
+   */
+  widePages?: WidePagesOptions;
 }
 
 type PDFJSGlobal = {
@@ -224,13 +243,27 @@ export { WorkerMessageHandler };`,
   pdfjsLib.GlobalWorkerOptions.workerSrc = compatPDFWorkerURL;
 }
 
+// Read the ZIP central directory, resolving entry metadata. Kept standalone
+// so the read can be started BEFORE the (slower) Rust prefetch RPC and the
+// two overlap instead of serializing in front of EPUB.init().
+type Entry = import('@zip.js/zip.js').Entry;
+
+async function openZipEntries(file: File): Promise<Entry[]> {
+  await configureZip();
+  const { ZipReader, BlobReader } = await import('@zip.js/zip.js');
+  const reader = new ZipReader(new BlobReader(file));
+  return reader.getEntries();
+}
+
 export class DocumentLoader {
   private file: File;
   private nativeFilePath?: string;
+  private widePages?: WidePagesOptions;
 
   constructor(file: File, options: DocumentLoaderOptions = {}) {
     this.file = file;
     this.nativeFilePath = options.nativeFilePath;
+    this.widePages = options.widePages;
   }
 
   private async isZip(): Promise<boolean> {
@@ -281,10 +314,13 @@ export class DocumentLoader {
     );
   }
 
-  private async makeZipLoader(prefetch?: {
-    textCache?: Map<string, string>;
-    sizes?: Map<string, number>;
-  }) {
+  private async makeZipLoader(
+    entriesPromise: Promise<Entry[]> | null,
+    prefetch?: {
+      textCache?: Map<string, string>;
+      sizes?: Map<string, number>;
+    },
+  ) {
     const getComment = async (): Promise<string | null> => {
       const EOCD_SIGNATURE = [0x50, 0x4b, 0x05, 0x06];
       const maxEOCDSearch = 1024 * 64;
@@ -310,11 +346,11 @@ export class DocumentLoader {
       return null;
     };
 
-    await configureZip();
-    const { ZipReader, BlobReader, TextWriter, BlobWriter } = await import('@zip.js/zip.js');
-    type Entry = import('@zip.js/zip.js').Entry;
-    const reader = new ZipReader(new BlobReader(this.file));
-    const entries = await reader.getEntries();
+    const { TextWriter, BlobWriter } = await import('@zip.js/zip.js');
+    // The central-directory read may already be in flight (started by the
+    // caller before the Rust prefetch, see open()); fall back to starting
+    // it here for formats that never prefetch (CBZ/FBZ).
+    const entries = await (entriesPromise ?? openZipEntries(this.file));
     const map = new Map(entries.map((entry) => [entry.filename, entry]));
     const lowercaseMap = new Map<string, Entry | null>();
     for (const entry of entries) {
@@ -452,6 +488,15 @@ export class DocumentLoader {
     );
   }
 
+  private isHtml(): boolean {
+    const name = this.filename.toLowerCase();
+    return (
+      this.file.type.startsWith('text/html') ||
+      name.endsWith(`.${EXTS.HTML}`) ||
+      name.endsWith('.htm')
+    );
+  }
+
   public async open(): Promise<{ book: BookDoc; format: BookFormat }> {
     let book = null;
     let format: BookFormat = 'EPUB';
@@ -471,6 +516,12 @@ export class DocumentLoader {
         const { makeMarkdownBook } = await import('@/utils/md');
         return { book: await makeMarkdownBook(this.file), format: 'MD' };
       }
+      // A saved web page (SingleFile, "Save as HTML") is rendered the same way:
+      // Readability keeps the article and its inlined images, drops the chrome.
+      if (this.isHtml()) {
+        const { makeHtmlBook } = await import('@/utils/html');
+        return { book: await makeHtmlBook(this.file), format: 'HTML' };
+      }
       if (this.isTxt()) {
         const { TxtToEpubConverter } = await import('@/utils/txt');
         const { file: epubFile } = await new TxtToEpubConverter().convert({ file: this.file });
@@ -482,6 +533,16 @@ export class DocumentLoader {
         // for them. We probe `isEPUBLike()` (= isZip but not CBZ/FBZ)
         // so the prefetch RPC only fires when it can actually be used.
         const isEPUBLike = !this.isCBZ() && !this.isFBZ();
+        // The central-directory read has no data dependency on the Rust
+        // prefetch (which only feeds loadText's textCache/sizes), so start
+        // it first and let the two overlap. On Android a multi-MB central
+        // directory means N chunked scheme round trips, all of which used
+        // to sit in front of EPUB.init().
+        const entriesPromise = isEPUBLike ? openZipEntries(this.file) : null;
+        // Avoid an unhandled rejection while the Rust prefetch below is still
+        // awaited; the rejection still surfaces via the await in makeZipLoader
+        // and the catch in open().
+        entriesPromise?.catch(() => undefined);
         let prefetch: { textCache: Map<string, string>; sizes: Map<string, number> } | undefined;
         if (isEPUBLike && this.nativeFilePath) {
           const { tryNativePrefetchEpub } = await import('@/utils/tauriEpubBridge');
@@ -490,12 +551,23 @@ export class DocumentLoader {
             prefetch = { textCache: native.textCache, sizes: native.sizes };
           }
         }
-        const loader = await this.makeZipLoader(prefetch);
+        const loader = await this.makeZipLoader(entriesPromise, prefetch);
         const { entries } = loader;
 
         if (this.isCBZ()) {
           const { makeComicBook } = await import('foliate-js/comic-book.js');
-          book = await makeComicBook(loader, this.file);
+          if (this.widePages) {
+            const { measureWidePages, trackWidePages } = await import('@/utils/spread');
+            const { known, onFound } = this.widePages;
+            const pages = trackWidePages(loader, onFound);
+            book = await makeComicBook(pages.loader, this.file);
+            pages.attach(
+              book.sections,
+              known ?? (await measureWidePages(this.file, entries, this.nativeFilePath)),
+            );
+          } else {
+            book = await makeComicBook(loader, this.file);
+          }
           format = 'CBZ';
         } else if (this.isFBZ()) {
           const entry = entries.find((entry) => entry.filename.endsWith(`.${EXTS.FB2}`));
@@ -568,6 +640,33 @@ export const getDirection = (doc: Document) => {
     doc.documentElement.dir === 'rtl';
   return { vertical, rtl };
 };
+
+/**
+ * Which way the reader turns pages, for a section whose own direction is
+ * `documentRtl` (from {@link getDirection}).
+ *
+ * `page-progression-direction` is a publication-wide declaration, so it settles
+ * the direction for every section: a book that mixes vertical and horizontal
+ * chapters must not turn its pages one way in one and the other way in the
+ * next. Only `ltr`/`rtl` bind — `default`, or no attribute at all, leaves the
+ * choice to us, and there the document decides.
+ *
+ * A writing mode the reader picked in Settings stays above all of it: it is an
+ * explicit instruction, and `vertical-rl` reads right-to-left by definition,
+ * whatever the book's spine says.
+ */
+export const getPageProgressionRTL = (
+  writingMode: string,
+  bookDir: string | undefined,
+  documentRtl: boolean,
+) =>
+  writingMode.includes('rl')
+    ? true
+    : bookDir === 'rtl'
+      ? true
+      : bookDir === 'ltr'
+        ? false
+        : documentRtl;
 
 export const getFileExtFromMimeType = (mimeType?: string): string => {
   if (!mimeType) return '';
