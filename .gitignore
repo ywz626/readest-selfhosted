@@ -19,6 +19,7 @@ docker/.env
 **/out.bak*/
 
 # misc temp dirs
+.superpowers/
 .tmp-official/
 .tmp_apk*/
 hs_err_pid*.log
