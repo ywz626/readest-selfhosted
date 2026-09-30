@@ -50,6 +50,7 @@ const renderHeader = () =>
           onToggleSelectMode={noop}
           onSelectAll={noop}
           onDeselectAll={noop}
+          onOpenRandomPick={noop}
           onSearchConfigChange={noop}
           onSearchQueryChange={noop}
           onSearchTargetChange={noop}

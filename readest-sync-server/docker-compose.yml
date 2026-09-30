@@ -24,7 +24,8 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # Docker Hub 已下架 minio 镜像，改从 quay.io 拉取（与上游 docker/compose.yaml 保持一致）
+    image: quay.io/minio/minio:latest
     profiles: ["minio"]       # 仅 --profile minio 时启动
     command: server /data --console-address ":9001"
     environment:
