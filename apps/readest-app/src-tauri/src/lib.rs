@@ -37,6 +37,8 @@ mod eink_identity;
 mod epub_parser;
 #[cfg(all(target_os = "linux", any(feature = "cef", test)))]
 mod linux_display;
+#[cfg(all(target_os = "linux", any(feature = "cef", test)))]
+mod linux_single_instance;
 mod localsend;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -315,6 +317,74 @@ fn undecorated_shadow_is_symmetric() -> bool {
     true
 }
 
+/// Restores the main window's saved geometry on Windows, after repairing the
+/// window's client area.
+///
+/// The main window is created hidden (`visible(false)`) with undecorated
+/// shadows. While the window stays hidden, tao's `WM_NCCALCSIZE` handler is
+/// never invoked again, so the client area keeps the rect Windows computed at
+/// creation time from the native frame styles — shorter than intended by the
+/// titlebar height. Restoring the saved size on top of that makes tao
+/// compensate with the stale window-to-client offset, and the difference is
+/// baked into the real client area on every launch: the window grows by
+/// roughly one titlebar height per start (#6373).
+///
+/// A single frame re-evaluation (`SWP_FRAMECHANGED`) after creation lets
+/// tao's handler measure the client area correctly; the saved geometry is
+/// then replayed through the plugin's own `restore_state` against the
+/// corrected rect, all while the window is still hidden.
+#[cfg(all(desktop, target_os = "windows"))]
+fn restore_main_window_state(window: &tauri::WebviewWindow) {
+    use tauri_plugin_window_state::{StateFlags, WindowExt};
+
+    if let Ok(hwnd) = window.hwnd() {
+        // Leading `::` because this crate has its own `mod windows`.
+        use ::windows::Win32::Foundation::HWND;
+        use ::windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SET_WINDOW_POS_FLAGS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_NOZORDER,
+        };
+        // SAFETY: `hwnd` is the live top-level window of this webview. The
+        // flags only force a nonclient-area recalculation — no move, no
+        // resize, no z-order change, no activation.
+        unsafe {
+            if let Err(e) = SetWindowPos(
+                HWND(hwnd.0),
+                None,
+                0,
+                0,
+                0,
+                0,
+                SET_WINDOW_POS_FLAGS(
+                    SWP_FRAMECHANGED.0
+                        | SWP_NOMOVE.0
+                        | SWP_NOSIZE.0
+                        | SWP_NOZORDER.0
+                        | SWP_NOACTIVATE.0,
+                ),
+            ) {
+                // Restoring proceeds either way; the saved geometry just comes
+                // back with the pre-fix growth for this launch.
+                log::error!("Failed to re-evaluate the main window frame: {e}");
+            }
+        }
+    }
+    // VISIBLE is excluded: the plugin would otherwise show the window at the
+    // end of the restore — before the webview has painted its first frame,
+    // which flashes the window background on dark hosts. The window is shown
+    // by the frontend's `window-themed` event instead (see the listener in
+    // `run`), with a timeout fallback for the case where that event never
+    // arrives.
+    let restore_flags = StateFlags::all() & !StateFlags::VISIBLE;
+    if let Err(e) = window.restore_state(restore_flags) {
+        // A failed restore leaves the main window invisible for this launch —
+        // surface it at its creation-time size instead. The state file is
+        // untouched, so the next launch retries the restore.
+        log::error!("Failed to restore the main window state: {e}");
+        let _ = window.show();
+    }
+}
+
 // Pure decision for whether the in-app updater should be hidden. Kept
 // dependency-free so it can be unit tested for every platform combination.
 //
@@ -420,19 +490,26 @@ struct SingleInstancePayload {
 
 /// The webview runtime this build drives: CEF on Linux, Wry everywhere else
 /// (the `cef` feature is a no-op off Linux, see Cargo.toml). Named explicitly
-/// because several plugins pull in tauri's default `wry` feature even when CEF
-/// is selected, which leaves `Builder::default()` ambiguous there.
+/// so the app is statically dispatched on both tauri graphs: on feat/cef the
+/// runtime lives in its own crate and `Builder::default()` would be the
+/// type-erased `tauri::DynRuntime`.
 ///
 /// The one Linux build that is still Wry is the webdriver test harness
 /// (scripts/test-tauri.sh): tauri-plugin-webdriver drives the webview through
 /// webkit2gtk there and has no CEF backend.
 #[cfg(all(feature = "cef", target_os = "linux"))]
-type AppRuntime = tauri::Cef;
+type AppRuntime = tauri_runtime_cef::CefRuntime;
 #[cfg(not(all(feature = "cef", target_os = "linux")))]
 type AppRuntime = tauri::Wry;
 
+#[cfg(desktop)]
+const SINGLE_INSTANCE_DBUS_ID: &str = "com.bilingify.readest";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-#[cfg_attr(all(feature = "cef", target_os = "linux"), tauri::cef_entry_point)]
+#[cfg_attr(
+    all(feature = "cef", target_os = "linux"),
+    tauri_runtime_cef::cef_entry_point
+)]
 pub fn run() {
     // The CEF runtime forces X11, even on Wayland. Check before initializing
     // Tauri, which otherwise hides the missing display behind CreateWindow.
@@ -442,6 +519,9 @@ pub fn run() {
         eprintln!("{message}");
         std::process::exit(1);
     }
+
+    #[cfg(all(feature = "cef", target_os = "linux"))]
+    linux_single_instance::forward_to_running_instance(SINGLE_INSTANCE_DBUS_ID);
 
     // Initialize Sentry as early as possible so panics during startup are
     // captured. `None` DSN (unset SENTRY_DSN) => disabled, so local and fork
@@ -522,19 +602,28 @@ pub fn run() {
 
     let builder = tauri::Builder::<AppRuntime>::new();
 
-    // `READEST_CDP_PORT=9222` hands the port to CEF as `--remote-debugging-port`,
-    // so a debugger or test driver can attach over the Chrome DevTools Protocol
-    // on 127.0.0.1 (see docs/testing.md). CEF also honours the switch straight
-    // off argv, but tauri-plugin-cli parses the same argv for open-with paths and
-    // warns about the unknown argument on every launch, so the env var is the
-    // supported way in.
     #[cfg(all(feature = "cef", target_os = "linux"))]
-    let builder = match std::env::var("READEST_CDP_PORT") {
-        Ok(port) if !port.is_empty() => builder.runtime_init_attrs(
-            tauri::CefRuntimeAttributes::default()
-                .command_line_arg("remote-debugging-port", Some(port)),
-        ),
-        _ => builder,
+    let builder = {
+        // Chromium runs unsandboxed, as it always has here. The runtime's
+        // default keeps the sandbox outside AppImages, but where unprivileged
+        // user namespaces are restricted (Ubuntu 24.04+) that needs a
+        // root-owned setuid chrome-sandbox, which only the deb installs:
+        // Flatpak, Nix and unpacked builds would abort at startup instead.
+        let cef =
+            tauri_runtime_cef::Cef::default().sandbox(tauri_runtime_cef::SandboxPolicy::Disabled);
+        // `READEST_CDP_PORT=9222` starts CEF's DevTools protocol server on that
+        // port, so a debugger or test driver can attach over the Chrome DevTools
+        // Protocol on 127.0.0.1 (see docs/testing.md). The runtime refuses a
+        // `--remote-debugging-port` switch it was not asked for, so this is the
+        // only way in.
+        let cef = match std::env::var("READEST_CDP_PORT").map(|port| port.parse::<u16>()) {
+            Ok(Ok(port)) => cef.remote_debugging(tauri_runtime_cef::RemoteDebugging::Port {
+                port,
+                allowed_origins: Vec::new(),
+            }),
+            _ => cef,
+        };
+        builder.runtime(cef)
     };
 
     let builder = builder
@@ -641,7 +730,7 @@ pub fn run() {
                 app.emit("single-instance", SingleInstancePayload { args: argv, cwd })
                     .unwrap();
             })
-            .dbus_id("com.bilingify.readest".to_owned())
+            .dbus_id(SINGLE_INSTANCE_DBUS_ID.to_owned())
             .build(),
     );
 
@@ -657,8 +746,16 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(window_state::init());
 
+    // The main window restores its saved geometry manually on Windows (see
+    // `restore_main_window_state`): restoring into the freshly created hidden
+    // window bakes the stale creation-time client area into the saved size,
+    // growing the window on every launch (#6373).
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    let window_state = tauri_plugin_window_state::Builder::default();
+    #[cfg(all(desktop, windows))]
+    let window_state = window_state.skip_initial_state("main");
+    #[cfg(desktop)]
+    let builder = builder.plugin(window_state.build());
 
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(macos::traffic_light::init());
@@ -905,9 +1002,48 @@ pub fn run() {
 
             #[cfg(not(target_os = "macos"))]
             {
-                let win = win_builder.build().unwrap();
+                let _main_window = win_builder.build().unwrap();
                 #[cfg(debug_assertions)]
-                win.open_devtools();
+                _main_window.open_devtools();
+                #[cfg(windows)]
+                restore_main_window_state(&_main_window);
+                // The window is created hidden and the state-restore show is
+                // suppressed (see restore_main_window_state): the frontend
+                // signals once the theme is applied — WebView2 has painted
+                // the themed page — and only then is the window mapped, so
+                // the user never sees the pre-theme background. The timeout
+                // covers a wedged frontend by surfacing the window at its
+                // fallback background (the pre-fix behavior) instead of
+                // nothing. Non-Windows platforms keep their existing
+                // show-at-restore behavior.
+                #[cfg(windows)]
+                {
+                    use std::sync::atomic::{AtomicBool, Ordering};
+                    use std::sync::Arc;
+                    let theme_shown = Arc::new(AtomicBool::new(false));
+                    if let Some(theme_window) = app.get_webview_window("main") {
+                        {
+                            let theme_shown = Arc::clone(&theme_shown);
+                            let theme_window = theme_window.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(30));
+                                if !theme_shown.swap(true, Ordering::SeqCst) {
+                                    log::warn!("window-themed event timed out; showing the main window at its fallback background");
+                                    let _ = theme_window.show();
+                                    let _ = theme_window.set_focus();
+                                }
+                            });
+                        }
+                        let theme_shown_for_listen = Arc::clone(&theme_shown);
+                        let theme_window_for_listen = theme_window.clone();
+                        app.listen("window-themed", move |_| {
+                            if !theme_shown_for_listen.swap(true, Ordering::SeqCst) {
+                                let _ = theme_window_for_listen.show();
+                                let _ = theme_window_for_listen.set_focus();
+                            }
+                        });
+                    }
+                }
             }
 
             #[cfg(target_os = "macos")]

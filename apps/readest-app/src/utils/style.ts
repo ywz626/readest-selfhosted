@@ -80,6 +80,19 @@ export const getBaseFontFamily = (viewSettings: ViewSettings): string => {
   return viewSettings.defaultFont!.toLowerCase() === 'serif' ? families.serif : families.sansSerif;
 };
 
+/**
+ * The body font size, in CSS px, that the reader applies to the book, for
+ * top-level UI that shows book text outside the iframe.
+ */
+export const getBaseFontSize = (viewSettings: ViewSettings): number => {
+  // scale the font size on-the-fly so that we can sync the same font size on different devices
+  const isMobile = ['ios', 'android'].includes(getOSPlatform());
+  const fontScale = isMobile ? 1.25 : 1;
+  // Only for backward compatibility, new viewSettings.zoomLevel will always be 100 for EPUBs
+  const zoomScale = (viewSettings.zoomLevel || 100) / 100.0;
+  return viewSettings.defaultFontSize! * fontScale * zoomScale;
+};
+
 const getFontStyles = (
   serif: string,
   sansSerif: string,
@@ -241,6 +254,17 @@ const getEinkSelectionStyles = () => {
   `;
 };
 
+// Chromium's default selection colors force near-black text (on blue when
+// focused, on grey when not), unreadable on a dark page — most visibly on the
+// selection a lookup popup holds while it has focus (#6503). Setting only the
+// background keeps each element's own text color, and pdf.js's transparent
+// text layer stays transparent.
+const getDarkSelectionStyles = (primary: string) => `
+    ::selection {
+      background: color-mix(in srgb, ${primary} 40%, transparent);
+    }
+  `;
+
 const getDialogueHighlightStyles = (viewSettings: ViewSettings, themeCode: ThemeCode) => {
   // Background and text are independent switches; off means the default
   // (theme primary tint for the background, inherited text). An empty stored
@@ -270,6 +294,20 @@ const getDialogueHighlightStyles = (viewSettings: ViewSettings, themeCode: Theme
   }
   .readest-dialogue-block {${bgDecl(12)}${text}
     border-radius: 0.3em;
+  }${
+    viewSettings.dialogueHighlightItalic
+      ? `
+  /* Italic runs marked like quoted dialogue; nested marks drop their own
+     tint so overlapping translucent backgrounds don't stack. */
+  :is(i, em) {${bgDecl(22)}${text}
+    border-radius: 0.2em;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  :is(i, em) :is(i, em, .readest-dialogue), .readest-dialogue :is(i, em) {
+    background-color: transparent !important;
+  }`
+      : ''
   }
 `;
 };
@@ -295,7 +333,7 @@ const getColorStyles = (
     html, body {
       color: ${fg};
     }
-    ${isEink ? getEinkSelectionStyles() : ''}
+    ${isEink ? getEinkSelectionStyles() : isDarkMode ? getDarkSelectionStyles(primary) : ''}
     html[has-background], body[has-background] {
       --background-set: var(--theme-bg-color);
     }
@@ -414,6 +452,7 @@ const getColorStyles = (
 };
 
 export const LINK_TOUCH_HOLD_CLASS = 'link-touch-hold';
+export const TEXT_SELECTED_CLASS = 'text-selected';
 
 const getPageLayoutStyles = (
   marginTop: number,
@@ -471,6 +510,11 @@ const getPageLayoutStyles = (
     content: '';
     position: absolute;
     inset: -10px;
+  }
+  /* the enlarged area swallows the text around a link, so a selection dragged
+     next to a footnote marker snaps away (#6566); set while text is selected */
+  html.${TEXT_SELECTED_CLASS} a::before {
+    pointer-events: none;
   }
 
   .${SCROLL_WRAPPER_CLASS} {
@@ -824,7 +868,77 @@ export const getDictStyles = (bg: string, fg: string, isDarkMode: boolean) => {
   `;
 };
 
-const getTranslationStyles = (showSource: boolean) => `
+const parseComputedRgb = (value: string) => {
+  const m = value.match(/^rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?\)$/);
+  if (!m) return null;
+  const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return {
+    r,
+    g,
+    b,
+    a: m[4] === undefined ? 1 : Number(m[4]),
+    brightness: 0.299 * r + 0.587 * g + 0.114 * b,
+  };
+};
+
+/**
+ * Lift dictionary text colors that would vanish on the dark popup (#6618).
+ *
+ * Dictionaries are authored for a light page and set dark text colors in bundled CSS, embedded
+ * `<style>`, inline styles or `<font color>`; reading computed colors covers all of them. A dark
+ * color gets its perceived brightness mirrored (Y -> 255 - Y) by an equal shift on every channel,
+ * which keeps its hue and the order of the dictionary's text shades. Text on a light box the
+ * dictionary paints itself is left as authored.
+ */
+export const liftDarkTextColors = (root: Element) => {
+  // The surface behind `root` is the popup's, found past a shadow root's host.
+  const parentOf = (el: Element) => {
+    const rootNode = el.getRootNode();
+    return el.parentElement ?? (rootNode instanceof ShadowRoot ? rootNode.host : null);
+  };
+  let outerOnLight = false;
+  for (let el = parentOf(root); el; el = parentOf(el)) {
+    const bg = parseComputedRgb(getComputedStyle(el).backgroundColor);
+    if (bg && bg.a > 0.5) {
+      outerOnLight = bg.brightness >= 128;
+      break;
+    }
+  }
+  const onLightBox = new Map<Element, boolean>();
+  const lifts: [HTMLElement, string][] = [];
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    const style = getComputedStyle(el);
+    const bg = parseComputedRgb(style.backgroundColor);
+    const parentOnLight = el === root ? outerOnLight : !!onLightBox.get(el.parentElement!);
+    const onLight = bg && bg.a > 0.5 ? bg.brightness >= 128 : parentOnLight;
+    onLightBox.set(el, onLight);
+    const fg = parseComputedRgb(style.color);
+    if (!fg || onLight || fg.brightness >= 128) continue;
+    const shift = Math.round(255 - 2 * fg.brightness);
+    const [r, g, b] = [fg.r, fg.g, fg.b].map((c) => Math.min(255, c + shift));
+    lifts.push([el as HTMLElement, `rgba(${r}, ${g}, ${b}, ${fg.a})`]);
+  }
+  // Write after reading so the loop doesn't force a style recalc per element.
+  for (const [el, color] of lifts) el.style.setProperty('color', color, 'important');
+};
+
+const getTranslatedTextStyles = (viewSettings: ViewSettings) => {
+  const { translationFont, translationFontStyle, translationFontSize, translationColor } =
+    viewSettings;
+  return [
+    translationFont && `font-family: var(--${translationFont}) !important;`,
+    translationFontStyle?.includes('italic') && 'font-style: italic !important;',
+    translationFontStyle?.includes('bold') && 'font-weight: bold !important;',
+    translationFontSize &&
+      translationFontSize !== 1 &&
+      `font-size: ${translationFontSize}em !important;`,
+    translationColor && `color: ${translationColor} !important;`,
+  ]
+    .filter(Boolean)
+    .join('\n    ');
+};
+
+const getTranslationStyles = (viewSettings: ViewSettings) => `
   .translation-source {
   }
   .translation-target {
@@ -839,7 +953,8 @@ const getTranslationStyles = (showSource: boolean) => `
   }
   .translation-target-block {
     display: block !important;
-    ${showSource ? 'margin: 0.5em 0 !important;' : ''}
+    ${viewSettings.showTranslateSource ? 'margin: 0.5em 0 !important;' : ''}
+    ${getTranslatedTextStyles(viewSettings)}
   }
   .translation-target-toc {
     display: block !important;
@@ -990,18 +1105,13 @@ export const getStyles = (
         viewSettings.hyphenation!,
         viewSettings.vertical!,
       );
-  // scale the font size on-the-fly so that we can sync the same font size on different devices
-  const isMobile = ['ios', 'android'].includes(getOSPlatform());
-  const fontScale = isMobile ? 1.25 : 1;
-  // Only for backward compatibility, new viewSettings.zoomLevel will always be 100 for EPUBs
-  const zoomScale = (viewSettings.zoomLevel || 100) / 100.0;
   const fontStyles = getFontStyles(
     viewSettings.serifFont!,
     viewSettings.sansSerifFont!,
     viewSettings.monospaceFont!,
     viewSettings.defaultFont!,
     viewSettings.defaultCJKFont!,
-    viewSettings.defaultFontSize! * fontScale * zoomScale,
+    getBaseFontSize(viewSettings),
     viewSettings.minimumFontSize!,
     viewSettings.fontWeight!,
     viewSettings.overrideFont!,
@@ -1021,7 +1131,7 @@ export const getStyles = (
     viewSettings.backgroundTextureId,
     viewSettings.isEink,
   );
-  const translationStyles = getTranslationStyles(viewSettings.showTranslateSource!);
+  const translationStyles = getTranslationStyles(viewSettings);
   const warichuStyles = getWarichuStyles();
   const rubyStyles = getRubyStyles(viewSettings);
   const dialogueStyles = isDialogueHighlightActive(viewSettings)
@@ -1065,7 +1175,7 @@ export const applyTranslationStyle = (viewSettings: ViewSettings) => {
 
   const styleElement = document.createElement('style');
   styleElement.id = styleId;
-  styleElement.textContent = getTranslationStyles(viewSettings.showTranslateSource);
+  styleElement.textContent = getTranslationStyles(viewSettings);
 
   document.head.appendChild(styleElement);
 };
@@ -1668,6 +1778,20 @@ export const getOverlayerBlendMode = ({
   return isDarkPage ? 'screen' : 'multiply';
 };
 
+/**
+ * The colors the PDF renderer recolors pages to, or undefined to leave pages as
+ * the book has them. Embedded photos keep their own colors unless images are to
+ * be inverted in dark mode too (#6548).
+ */
+export const getPDFPageColors = (viewSettings: ViewSettings, themeCode: ThemeCode) =>
+  viewSettings.applyThemeToPDF
+    ? {
+        background: themeCode.bg,
+        foreground: themeCode.fg,
+        keepImages: !(themeCode.isDarkMode && viewSettings.invertImgColorInDark),
+      }
+    : undefined;
+
 export const applyFixedlayoutStyles = (
   document: Document,
   viewSettings: ViewSettings,
@@ -1688,7 +1812,14 @@ export const applyFixedlayoutStyles = (
   const invertImgColorInDark = viewSettings.invertImgColorInDark!;
   const contrast = viewSettings.contrast ?? 100;
   const imgFilters: string[] = [];
-  if (isDarkMode && invertImgColorInDark) imgFilters.push('invert(100%)');
+  // The renderer already recolors a themed PDF page, images included when they
+  // are to be inverted; inverting or blending it again would darken or flip the
+  // theme colors (#6548).
+  const isThemedPDF = format === 'PDF' && viewSettings.applyThemeToPDF;
+  // hue-rotate flips the hues back, so a blue link stays blue
+  if (isDarkMode && invertImgColorInDark && !isThemedPDF) {
+    imgFilters.push('invert(100%) hue-rotate(180deg)');
+  }
   if (contrast !== 100) imgFilters.push(`contrast(${contrast}%)`);
   const imgFilter = imgFilters.length ? `filter: ${imgFilters.join(' ')};` : '';
   const darkMixBlendMode = bg === '#000000' ? 'luminosity' : 'overlay';
@@ -1723,10 +1854,16 @@ export const applyFixedlayoutStyles = (
     }
     img, canvas {
       ${imgFilter}
-      ${overrideColor ? `mix-blend-mode: ${isDarkMode ? darkMixBlendMode : 'multiply'};` : ''}
+      ${overrideColor && !isThemedPDF ? `mix-blend-mode: ${isDarkMode ? darkMixBlendMode : 'multiply'};` : ''}
     }
     img.singlePage {
       position: relative;
+    }
+    /* An unsized <image> draws at its natural size, which is the page size,
+       but a percentage-height svg in an auto-height block is only 150px tall
+       and would clip it to a strip (#6530). */
+    svg:not([viewBox]):has(> image:not([width])) {
+      overflow: visible;
     }
   `;
   document.head.appendChild(style);

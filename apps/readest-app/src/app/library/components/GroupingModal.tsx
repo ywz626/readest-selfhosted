@@ -6,6 +6,7 @@ import { IoMdArrowBack } from 'react-icons/io';
 
 import { Book, BookGroupType } from '@/types/book';
 import { isMd5 } from '@/utils/md5';
+import { setBookGroup } from '@/utils/book';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -18,6 +19,8 @@ interface GroupingModalProps {
   libraryBooks: Book[];
   selectedBooks: string[];
   parentGroupName: string;
+  /** Full path of the one group the selection stands for, if any. */
+  renameGroupName?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -26,6 +29,7 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
   libraryBooks,
   selectedBooks,
   parentGroupName,
+  renameGroupName,
   onCancel,
   onConfirm,
 }) => {
@@ -72,10 +76,7 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
       .map((hash) => libraryBooks.find((book) => book.hash === hash)?.groupId)
       .some((group) => group && group !== BOOK_UNGROUPED_NAME);
 
-  const canRenameGroup = selectedBooks.length === 1 && selectedBooks.every((id) => !isMd5(id));
-  const currentGroupForRename = canRenameGroup
-    ? allGroups.find((group) => group.id === selectedBooks[0])
-    : null;
+  const canRenameGroup = !!renameGroupName;
 
   const generateNextUntitledGroupName = () => {
     const baseName = _('Untitled Group');
@@ -110,10 +111,10 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
   };
 
   const handleRenameGroup = () => {
-    if (!currentGroupForRename) return;
+    if (!renameGroupName) return;
 
-    setEditGroupName(currentGroupForRename.name);
-    setOriginalGroupName(currentGroupForRename.name);
+    setEditGroupName(renameGroupName);
+    setOriginalGroupName(renameGroupName);
     setShowInput(true);
     setIsRenaming(true);
   };
@@ -128,14 +129,7 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
           book.groupId !== BOOK_UNGROUPED_ID &&
           book.groupName !== BOOK_UNGROUPED_NAME
         ) {
-          book.groupId = undefined;
-          book.groupName = undefined;
-          book.updatedAt = Date.now();
-          // Group membership merges on its own clock so an unrelated row bump
-          // on a peer cannot clobber this edit (#5911). A removal MUST be
-          // stamped: an unstamped ungrouped row is treated as "never knew
-          // about the group" and loses to a grouped peer by design.
-          book.groupUpdatedAt = book.updatedAt;
+          setBookGroup(book, undefined, undefined);
         }
       }
     });
@@ -154,15 +148,10 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
         // Update the group name for all books in this group and nested groups
         libraryBooks.forEach((book) => {
           if (book.groupName === oldGroupName) {
-            book.groupName = groupName;
-            book.groupId = getGroupId(book.groupName);
-            book.updatedAt = Date.now();
-            book.groupUpdatedAt = book.updatedAt;
+            setBookGroup(book, getGroupId(groupName), groupName);
           } else if (book.groupName?.startsWith(oldGroupName + '/')) {
-            book.groupName = book.groupName.replace(oldGroupName, groupName);
-            book.groupId = getGroupId(book.groupName);
-            book.updatedAt = Date.now();
-            book.groupUpdatedAt = book.updatedAt;
+            const newName = book.groupName.replace(oldGroupName, groupName);
+            setBookGroup(book, getGroupId(newName), newName);
           }
         });
 
@@ -170,9 +159,9 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
         appService?.saveLibraryBooks(libraryBooks);
 
         refreshGroups();
-        setShowInput(false);
-        setIsRenaming(false);
-        setOriginalGroupName(null);
+        // A rename is complete on its own. Left open, Confirm would move the
+        // whole selected subtree into one group and flatten its nested groups.
+        onConfirm();
       } else {
         // Creating new group
         if (currentPath && !groupName.startsWith(currentPath + '/')) {
@@ -212,10 +201,7 @@ const GroupingModal: React.FC<GroupingModalProps> = ({
     selectedBooks.forEach((id) => {
       for (const book of libraryBooks.filter((book) => book.hash === id || book.groupId === id)) {
         if (book && selectedGroup) {
-          book.groupId = selectedGroup.id;
-          book.groupName = selectedGroup.name;
-          book.updatedAt = Date.now();
-          book.groupUpdatedAt = book.updatedAt;
+          setBookGroup(book, selectedGroup.id, selectedGroup.name);
         }
       }
     });

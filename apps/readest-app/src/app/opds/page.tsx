@@ -41,6 +41,7 @@ import {
   fetchWithAuth,
   probeAuth,
   needsProxy,
+  needsNativeImageFetch,
   probeFilename,
 } from './utils/opdsReq';
 import { getPublicationDetailHref, parsePublicationDocument } from './utils/opdsPublication';
@@ -70,6 +71,7 @@ import { closeOPDSBrowser, stashOPDSReturnTarget } from './utils/opdsClose';
 import { findExistingBookForPublication } from './utils/findExistingBook';
 import Dialog from '@/components/Dialog';
 import { uniqueId } from '@/utils/misc';
+import { getHorizontalInsetStyle } from '@/utils/insets';
 
 type ViewMode = 'feed' | 'publication' | 'search' | 'loading' | 'error';
 
@@ -99,7 +101,7 @@ export default function BrowserPage() {
   // already imported (shown as "Open & Read" instead of "Download"), and
   // re-evaluate whenever a download finishes or a book is removed.
   const library = useLibraryStore((s) => s.library);
-  const { safeAreaInsets, isRoundedWindow } = useThemeStore();
+  const { safeAreaInsets, isRoundedWindow, isIPhoneDuo } = useThemeStore();
   const { settings } = useSettingsStore();
   const [viewMode, setViewMode] = useState<ViewMode>('loading');
   const [state, setState] = useState<OPDSState>({
@@ -836,7 +838,12 @@ export default function BrowserPage() {
       const username = usernameRef.current || '';
       const password = passwordRef.current || '';
       const customHeaders = customHeadersRef.current;
-      if (!username && !password && Object.keys(customHeaders).length === 0) {
+      if (
+        !username &&
+        !password &&
+        Object.keys(customHeaders).length === 0 &&
+        !needsNativeImageFetch(url)
+      ) {
         return needsProxy(url) ? getProxiedURL(url, '', true) : url;
       }
 
@@ -1130,6 +1137,8 @@ export default function BrowserPage() {
         className='relative top-0 z-40 w-full'
         style={{
           paddingTop: `${safeAreaInsets?.top || 0}px`,
+          // Clear iPhone Duo's side status strip (#6307).
+          ...getHorizontalInsetStyle(safeAreaInsets, isIPhoneDuo),
         }}
       >
         <Navigation

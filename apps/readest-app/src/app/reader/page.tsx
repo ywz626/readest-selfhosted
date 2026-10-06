@@ -6,9 +6,11 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAppUrlIngress } from '@/hooks/useAppUrlIngress';
 import { useOpenWithBooks } from '@/hooks/useOpenWithBooks';
 import { useOpenLaunchLinks } from '@/hooks/useOpenLaunchLinks';
-import { useBookshelfWidget } from '@/hooks/useBookshelfWidget';
+import { useHomeScreenWidgets } from '@/hooks/useHomeScreenWidgets';
 import { useOpenShareLink } from '@/hooks/useOpenShareLink';
+import { useOpenDeviceLink } from '@/hooks/useOpenDeviceLink';
 import { useClipUrlIngress } from '@/hooks/useClipUrlIngress';
+import { useRestoreLibraryOnRelaunch } from '@/hooks/useRestoreLibraryOnRelaunch';
 import { useSettingsStore } from '@/store/settingsStore';
 import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
 import { tauriHandleSetAlwaysOnTop } from '@/utils/window';
@@ -24,9 +26,11 @@ export default function Page() {
   useAppUrlIngress();
   useOpenWithBooks();
   useOpenLaunchLinks();
-  useBookshelfWidget();
+  useHomeScreenWidgets();
   useOpenShareLink();
+  useOpenDeviceLink();
   useClipUrlIngress();
+  useRestoreLibraryOnRelaunch();
 
   useEffect(() => {
     const doCheckAppUpdates = async () => {

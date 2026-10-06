@@ -297,6 +297,12 @@ const layoutPanelItems = [
     section: 'Page',
   },
   {
+    id: 'settings.layout.columnGap',
+    labelKey: _('Column Gap (px)'),
+    keywords: ['column', 'gap', 'gutter', 'spine', 'spread', 'two', 'dual'],
+    section: 'Page',
+  },
+  {
     id: 'settings.layout.maxColumnCount',
     labelKey: _('Maximum Number of Columns'),
     keywords: ['column', 'columns', 'max', 'count', 'multi'],
@@ -525,6 +531,12 @@ const controlPanelItems = [
     section: 'Device',
   },
   {
+    id: 'settings.control.autoFullRefresh',
+    labelKey: _('Auto Full Refresh'),
+    keywords: ['eink', 'e-ink', 'ghosting', 'full', 'refresh', 'interval', 'pages'],
+    section: 'Device',
+  },
+  {
     id: 'settings.control.hideBookshelfPageButtons',
     labelKey: _('Hide Bookshelf Buttons'),
     keywords: ['eink', 'e-ink', 'library', 'bookshelf', 'previous', 'next', 'page', 'buttons'],
@@ -580,6 +592,18 @@ const languagePanelItems = [
     id: 'settings.language.translationProvider',
     labelKey: _('Translation Service'),
     keywords: ['translation', 'provider', 'google', 'deepl', 'service'],
+    section: 'Translation',
+  },
+  {
+    id: 'settings.language.translationPrompt',
+    labelKey: _('Translation Prompt'),
+    keywords: ['translation', 'prompt', 'ai', 'llm', 'style'],
+    section: 'Translation',
+  },
+  {
+    id: 'settings.language.customTranslators',
+    labelKey: _('Custom Translators'),
+    keywords: ['translation', 'custom', 'api key', 'openai', 'deepseek', 'ollama', 'deepl', 'llm'],
     section: 'Translation',
   },
   {

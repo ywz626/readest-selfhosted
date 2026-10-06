@@ -6,7 +6,7 @@ import { useThemeStore } from '@/store/themeStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { eventDispatcher } from '@/utils/event';
-import { getHeaderBandGeometry } from '@/utils/insets';
+import { getHeaderBandGeometry, getMarginalInlinePadding } from '@/utils/insets';
 import { getBookDataAttributes } from '@/utils/book';
 import {
   getChromeChip,
@@ -26,6 +26,10 @@ interface SectionInfoProps {
   horizontalGap: number;
   contentInsets: Insets;
   gridInsets: Insets;
+  // The spread's Column Gap (px) in effect, 0 when none (getSpreadColumnGap).
+  columnGap?: number;
+  // A fixed-layout page that runs past the viewport (usePageOverflow).
+  hidden?: boolean;
 }
 
 const SectionInfo: React.FC<SectionInfoProps> = ({
@@ -38,11 +42,13 @@ const SectionInfo: React.FC<SectionInfoProps> = ({
   horizontalGap,
   contentInsets,
   gridInsets,
+  columnGap = 0,
+  hidden = false,
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
   const { hoveredBookKey, getView, getViewSettings, setHoveredBookKey } = useReaderStore();
-  const { systemUIVisible, statusBarHeight } = useThemeStore();
+  const { systemUIVisible, statusBarHeight, isIPhoneDuo } = useThemeStore();
   const getBookData = useBookDataStore((s) => s.getBookData);
   const viewSettings = getViewSettings(bookKey)!;
   const bookData = getBookData(bookKey);
@@ -122,6 +128,7 @@ const SectionInfo: React.FC<SectionInfoProps> = ({
               ? 'text-white/75 mix-blend-difference font-light'
               : 'text-base-content font-light',
           isVertical ? 'writing-vertical-rl max-h-[85%]' : 'top-0',
+          hidden && 'invisible',
         )}
         role='none'
         tabIndex={-1}
@@ -141,7 +148,32 @@ const SectionInfo: React.FC<SectionInfoProps> = ({
               }
             : {
                 top: `${band.top}px`,
-                paddingInline: `calc(${horizontalGap / 2}% + ${contentInsets.left / 2}px)`,
+                ...(isIPhoneDuo
+                  ? {
+                      // Per side: a Duo status strip widens only one inset
+                      // (#6307). Half the page margin past the safe-area inset,
+                      // matching the paginator's gutter, or the text's edge
+                      // under a Column Gap.
+                      paddingLeft: getMarginalInlinePadding(
+                        horizontalGap,
+                        contentInsets.left + gridInsets.left,
+                        columnGap,
+                        gridInsets.left,
+                      ),
+                      paddingRight: getMarginalInlinePadding(
+                        horizontalGap,
+                        contentInsets.right + gridInsets.right,
+                        columnGap,
+                        gridInsets.right,
+                      ),
+                    }
+                  : {
+                      paddingInline: getMarginalInlinePadding(
+                        horizontalGap,
+                        contentInsets.left,
+                        columnGap,
+                      ),
+                    }),
                 width: '100%',
                 height: `${band.height}px`,
               }),

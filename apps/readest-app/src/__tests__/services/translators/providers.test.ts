@@ -291,61 +291,61 @@ describe('yandexProvider', () => {
     expect(response.bodyUsed).toBe(true);
   });
 
-  it.each([
-    'session',
-    'translation',
-  ])('cleans up cancellation after a failed %s request', async (stage) => {
-    vi.useFakeTimers();
-    const caller = new AbortController();
-    mockTauriFetch.mockImplementation(async (url) => {
-      if (stage === 'translation' && String(url).includes('/sessions')) {
-        return sessionResponse() as unknown as Response;
-      }
-      throw new Error('Connection interrupted');
-    });
-    const { yandexProvider } = await import('@/services/translators/providers/yandex');
-    await expect(
-      yandexProvider.translate(['Hello'], 'en', 'fr', null, false, caller.signal),
-    ).rejects.toThrow('Connection interrupted');
-    expect(vi.getTimerCount()).toBe(0);
-    caller.abort();
-    expect(mockTauriFetch.mock.calls.every(([, init]) => !init?.signal?.aborted)).toBe(true);
-  });
+  it.each(['session', 'translation'])(
+    'cleans up cancellation after a failed %s request',
+    async (stage) => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      mockTauriFetch.mockImplementation(async (url) => {
+        if (stage === 'translation' && String(url).includes('/sessions')) {
+          return sessionResponse() as unknown as Response;
+        }
+        throw new Error('Connection interrupted');
+      });
+      const { yandexProvider } = await import('@/services/translators/providers/yandex');
+      await expect(
+        yandexProvider.translate(['Hello'], 'en', 'fr', null, false, caller.signal),
+      ).rejects.toThrow('Connection interrupted');
+      expect(vi.getTimerCount()).toBe(0);
+      caller.abort();
+      expect(mockTauriFetch.mock.calls.every(([, init]) => !init?.signal?.aborted)).toBe(true);
+    },
+  );
 
-  it.each([
-    'caller',
-    'timeout',
-  ])('keeps %s cancellation active while reading the body', async (cause) => {
-    vi.useFakeTimers();
-    const caller = new AbortController();
-    let bodyStarted!: () => void;
-    const readingBody = new Promise<void>((resolve) => {
-      bodyStarted = resolve;
-    });
-    mockTauriFetch.mockImplementation(async (url, init) => {
-      if (String(url).includes('/sessions')) return sessionResponse() as unknown as Response;
-      return {
-        ok: true,
-        status: 200,
-        json: () =>
-          new Promise((_resolve, reject) => {
-            init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), {
-              once: true,
-            });
-            bodyStarted();
-          }),
-      } as unknown as Response;
-    });
-    const { yandexProvider } = await import('@/services/translators/providers/yandex');
-    const result = yandexProvider.translate(['Hello'], 'en', 'fr', null, false, caller.signal);
-    const rejection = expect(result).rejects.toThrow();
-    await readingBody;
-    if (cause === 'caller') caller.abort();
-    else await vi.advanceTimersByTimeAsync(15_000);
-    await rejection;
-    expect(translateCalls()[0]![1]!.signal!.aborted).toBe(true);
-    expect(vi.getTimerCount()).toBe(0);
-  });
+  it.each(['caller', 'timeout'])(
+    'keeps %s cancellation active while reading the body',
+    async (cause) => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      let bodyStarted!: () => void;
+      const readingBody = new Promise<void>((resolve) => {
+        bodyStarted = resolve;
+      });
+      mockTauriFetch.mockImplementation(async (url, init) => {
+        if (String(url).includes('/sessions')) return sessionResponse() as unknown as Response;
+        return {
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), {
+                once: true,
+              });
+              bodyStarted();
+            }),
+        } as unknown as Response;
+      });
+      const { yandexProvider } = await import('@/services/translators/providers/yandex');
+      const result = yandexProvider.translate(['Hello'], 'en', 'fr', null, false, caller.signal);
+      const rejection = expect(result).rejects.toThrow();
+      await readingBody;
+      if (cause === 'caller') caller.abort();
+      else await vi.advanceTimersByTimeAsync(15_000);
+      await rejection;
+      expect(translateCalls()[0]![1]!.signal!.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
   it('translates without a Readest token via the direct yandex API', async () => {
     mockYandexFlow(() => ({ code: 200, lang: 'en-fr', text: ['Bonjour'] }));
@@ -1300,31 +1300,31 @@ describe('provider registry availability handling', () => {
     const yandex = getTranslator('yandex')!;
 
     vi.mocked(isTauriAppPlatform).mockReturnValue(false);
-    expect(isTranslatorAvailable(yandex, false)).toBe(false);
-    expect(isTranslatorAvailable(yandex, true)).toBe(true);
+    expect(isTranslatorAvailable(yandex, false, false)).toBe(false);
+    expect(isTranslatorAvailable(yandex, true, false)).toBe(true);
 
     vi.mocked(isTauriAppPlatform).mockReturnValue(true);
-    expect(isTranslatorAvailable(yandex, false)).toBe(true);
+    expect(isTranslatorAvailable(yandex, false, false)).toBe(true);
   });
 
   it('isTranslatorAvailable returns false for disabled providers', async () => {
     const { isTranslatorAvailable } = await import('@/services/translators/providers');
     const disabled = { name: 'x', label: 'X', disabled: true, translate: async () => [] };
-    expect(isTranslatorAvailable(disabled, true)).toBe(false);
-    expect(isTranslatorAvailable(disabled, false)).toBe(false);
+    expect(isTranslatorAvailable(disabled, true, true)).toBe(false);
+    expect(isTranslatorAvailable(disabled, false, false)).toBe(false);
   });
 
   it('isTranslatorAvailable returns false for authRequired without token', async () => {
     const { isTranslatorAvailable } = await import('@/services/translators/providers');
     const authed = { name: 'x', label: 'X', authRequired: true, translate: async () => [] };
-    expect(isTranslatorAvailable(authed, false)).toBe(false);
-    expect(isTranslatorAvailable(authed, true)).toBe(true);
+    expect(isTranslatorAvailable(authed, false, false)).toBe(false);
+    expect(isTranslatorAvailable(authed, true, false)).toBe(true);
   });
 
   it('isTranslatorAvailable returns false when quota is exceeded', async () => {
     const { isTranslatorAvailable } = await import('@/services/translators/providers');
     const exhausted = { name: 'x', label: 'X', quotaExceeded: true, translate: async () => [] };
-    expect(isTranslatorAvailable(exhausted, true)).toBe(false);
+    expect(isTranslatorAvailable(exhausted, true, false)).toBe(false);
   });
 
   it('getTranslatorDisplayLabel returns the plain label for healthy providers', async () => {
@@ -1332,7 +1332,7 @@ describe('provider registry availability handling', () => {
       '@/services/translators/providers'
     );
     const google = getTranslator('google')!;
-    expect(getTranslatorDisplayLabel(google, true, (s) => s)).toBe('Google Translate');
+    expect(getTranslatorDisplayLabel(google, true, false, (s) => s)).toBe('Google Translate');
   });
 });
 

@@ -11,6 +11,7 @@ import { eventDispatcher } from '@/utils/event';
 import { openExternalUrl } from '@/utils/open';
 import { getBookGoodreadsQuery, getGoodreadsSearchUrl } from '@/utils/goodreads';
 import { getOSPlatform } from '@/utils/misc';
+import { getSeriesIndex } from '@/utils/book';
 import { throttle } from '@/utils/throttle';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
 import { FILE_REVEAL_LABELS, FILE_REVEAL_PLATFORMS } from '@/utils/os';
@@ -104,6 +105,7 @@ interface BookshelfItemProps {
   handleUpdateReadingStatus: (book: Book, status: ReadingStatus | undefined) => void;
   handleTogglePin?: (item: Book | BooksGroup) => void;
   showTimeRemaining: boolean;
+  showSeriesIndex?: boolean;
 }
 
 const BookshelfItem: React.FC<BookshelfItemProps> = ({
@@ -125,6 +127,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   handleUpdateReadingStatus,
   handleTogglePin,
   showTimeRemaining,
+  showSeriesIndex,
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
@@ -472,6 +475,10 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   // exact bookshelf cell the user is acting on without threading refs
   // through every parent. Books carry their content-hash; groups carry
   // their full group name.
+  const seriesIndex =
+    showSeriesIndex && mode === 'grid' && 'format' in item
+      ? getSeriesIndex(item.metadata?.seriesIndex)
+      : undefined;
   const itemDataAttrs =
     'format' in item ? { 'data-book-hash': item.hash } : { 'data-group-name': item.name };
 
@@ -488,7 +495,13 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         )}
         role='button'
         tabIndex={0}
-        aria-label={'format' in item ? item.title : item.name}
+        aria-label={
+          'format' in item
+            ? seriesIndex !== undefined
+              ? `${item.title} #${seriesIndex}`
+              : item.title
+            : item.name
+        }
         style={{
           transition: 'transform 0.2s',
         }}
@@ -514,6 +527,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               showBookDetailsModal={showBookDetailsModal}
               showTimeRemaining={showTimeRemaining}
               onMoreClick={appService?.isMobileApp ? handleMoreClick : undefined}
+              seriesIndex={seriesIndex}
             />
           ) : (
             <GroupItem

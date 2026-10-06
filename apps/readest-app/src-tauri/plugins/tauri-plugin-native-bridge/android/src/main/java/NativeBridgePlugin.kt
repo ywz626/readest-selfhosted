@@ -194,6 +194,25 @@ class UpdateBookshelfWidgetRequestArgs {
 }
 
 
+@InvokeArg
+class UpdateReadingWidgetRequestArgs {
+    var appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
+    // Empty means "nothing currently reading".
+    var hash: String = ""
+    var title: String = ""
+    var author: String = ""
+    // Numeric value for the progress bar.
+    var percent: Int = 0
+    var coverPath: String = ""
+    // The already-localized text stats to show, in order.
+    var stats: List<String> = emptyList()
+    var headerText: String = ""
+    var emptyTitle: String = ""
+    var isEink: Boolean = false
+    // Null when the caller sends no tts object.
+    var tts: UpdateBookshelfWidgetTtsArgs? = null
+}
+
 data class ProductData(
     val id: String,
     val title: String,
@@ -1487,14 +1506,17 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
-    // A caller-supplied appWidgetId that isn't a currently bound Bookshelf
-    // Widget instance would otherwise write a preference/cover entry keyed by
-    // whatever id was given, orphaned since onDeleted only ever fires for real
-    // ids.
-    private fun isBoundBookshelfWidget(id: Int): Boolean {
+    // A caller-supplied appWidgetId that isn't a currently bound instance of
+    // the given provider would otherwise write a preference/cover entry keyed
+    // by whatever id was given, orphaned since onDeleted only ever fires for
+    // real ids.
+    private fun isBoundWidget(id: Int, providerClass: Class<*>): Boolean {
         val mgr = AppWidgetManager.getInstance(activity) ?: return false
-        return id in mgr.getAppWidgetIds(ComponentName(activity, ReadingWidgetProvider::class.java))
+        return id in mgr.getAppWidgetIds(ComponentName(activity, providerClass))
     }
+    private fun isBoundBookshelfWidget(id: Int) = isBoundWidget(id, BookshelfWidgetProvider::class.java)
+    private fun isBoundReadingWidget(id: Int) =
+        isBoundWidget(id, ReadingWidgetProvider::class.java)
 
     @Command
     fun update_bookshelf_widget(invoke: Invoke) {
@@ -1583,7 +1605,7 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun get_bookshelf_widget_instances(invoke: Invoke) {
         val mgr = AppWidgetManager.getInstance(activity)
-        val ids = mgr?.getAppWidgetIds(ComponentName(activity, ReadingWidgetProvider::class.java))
+        val ids = mgr?.getAppWidgetIds(ComponentName(activity, BookshelfWidgetProvider::class.java))
             ?: IntArray(0)
         val instances = org.json.JSONArray()
         for (id in ids) {
@@ -1606,6 +1628,75 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun set_bookshelf_widget_catalog(invoke: Invoke) {
         BookshelfWidgetStore.writeCatalog(activity, invoke.getArgs().toString())
+        invoke.resolve()
+    }
+
+    @Command
+    fun update_reading_widget(invoke: Invoke) {
+        val args = invoke.parseArgs(UpdateReadingWidgetRequestArgs::class.java)
+        if (!isBoundReadingWidget(args.appWidgetId)) {
+            invoke.reject("appWidgetId is not a bound widget")
+            return
+        }
+        pluginScope.launch {
+            val failed = withContext(Dispatchers.IO) {
+                val snapshot = org.json.JSONObject()
+                    .put("emptyTitle", args.emptyTitle)
+                    .put("headerText", args.headerText)
+                    .put("isEink", args.isEink)
+                var failedCover = 0
+                if (args.hash.isNotEmpty()) {
+                    snapshot.put("hash", args.hash)
+                        .put("title", args.title)
+                        .put("author", args.author)
+                        .put("percent", args.percent)
+                        .put("stats", org.json.JSONArray(args.stats))
+                    try {
+                        if (!ReadingWidgetStore.writeCover(activity, args.hash, args.coverPath)) {
+                            failedCover = 1
+                        }
+                    } catch (e: Exception) {
+                        failedCover = 1
+                        Log.w("NativeBridgePlugin", "reading widget cover failed for ${args.hash}", e)
+                    }
+                }
+                args.tts?.let { tts ->
+                    snapshot.put(
+                        "tts",
+                        org.json.JSONObject()
+                            .put("active", tts.active)
+                            .put("playing", tts.playing)
+                    )
+                }
+                // The widget may have been removed while the cover was written; don't orphan its snapshot.
+                if (isBoundReadingWidget(args.appWidgetId)) {
+                    ReadingWidgetStore.writeSnapshot(activity, args.appWidgetId, snapshot.toString())
+                }
+                failedCover
+            }
+            if (isActive) invoke.resolve(JSObject().put("failed", failed))
+        }
+    }
+
+    @Command
+    fun get_reading_widget_instances(invoke: Invoke) {
+        val mgr = AppWidgetManager.getInstance(activity)
+        val ids = mgr?.getAppWidgetIds(ComponentName(activity, ReadingWidgetProvider::class.java))
+            ?: IntArray(0)
+        val instances = org.json.JSONArray()
+        for (id in ids) {
+            instances.put(
+                ReadingWidgetStore.readInstanceSettings(activity, id).toJson().put("appWidgetId", id)
+            )
+        }
+        val ret = JSObject()
+        ret.put("instances", instances)
+        invoke.resolve(ret)
+    }
+
+    @Command
+    fun set_reading_widget_catalog(invoke: Invoke) {
+        ReadingWidgetStore.writeCatalog(activity, invoke.getArgs().toString())
         invoke.resolve()
     }
 
@@ -2083,6 +2174,30 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
                 ret.put("error", e.message ?: "unknown")
             }
             invoke.resolve(ret)
+        }
+    }
+
+    /**
+     * Whether this device exposes a deep e-ink full-refresh mechanism we can
+     * drive. A read-only capability probe against [EinkRefreshController] (class
+     * reflection plus a system-service lookup) — it never drives the panel — so
+     * it is safe to call once at startup to decide whether to offer the "Refresh
+     * Page" / "Auto Full Refresh" options.
+     */
+    @Command
+    fun is_eink_refresh_supported(invoke: Invoke) {
+        // A confirmed-absent vendor hook resolves `supported:false` — JS caches
+        // that as authoritative and keeps the option hidden. An inconclusive read
+        // (a hook the reflection layer could not definitively rule out) is not a
+        // negative: reject so the JS probe drops its cache and retries on the
+        // next mount rather than latching a wrong 'unsupported' for the session.
+        val ret = JSObject()
+        try {
+            ret.put("supported", EinkRefreshController.isSupported(activity.applicationContext))
+            invoke.resolve(ret)
+        } catch (t: Throwable) {
+            Log.e("NativeBridgePlugin", "is_eink_refresh_supported inconclusive", t)
+            invoke.reject("eink capability probe inconclusive")
         }
     }
 

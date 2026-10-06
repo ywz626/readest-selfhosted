@@ -76,3 +76,26 @@ pnpm tauri build        # 打包桌面安装包（Windows / macOS / Linux）
 ## License
 
 本仓库基于上游 Readest 的自托管改造，仍以 [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.html) v3（或更高版本）分发。详见 [LICENSE](LICENSE) 文件。
+
+The following libraries and frameworks are used in this software:
+
+- [foliate-js](https://github.com/johnfactotum/foliate-js), which is MIT licensed.
+- [zip.js](https://github.com/gildas-lormeau/zip.js), which is licensed under the BSD-3-Clause license.
+- [fflate](https://github.com/101arrowz/fflate), which is MIT licensed.
+- [PDF.js](https://github.com/mozilla/pdf.js), which is licensed under Apache License 2.0.
+- [daisyUI](https://github.com/saadeghi/daisyui), which is MIT licensed.
+- [marked](https://github.com/markedjs/marked), which is MIT licensed.
+- [next.js](https://github.com/vercel/next.js), which is MIT licensed.
+- [react-icons](https://github.com/react-icons/react-icons), which has various open-source licenses.
+- [react](https://github.com/facebook/react), which is MIT licensed.
+- [tauri](https://github.com/tauri-apps/tauri), which is MIT licensed.
+
+The following fonts are utilized in this software, either bundled within the application or provided through web fonts:
+
+[Bitter](https://fonts.google.com/specimen/Bitter), [Fira Code](https://fonts.google.com/specimen/Fira+Code), [Inter](https://fonts.google.com/specimen/Inter), [Literata](https://fonts.google.com/specimen/Literata), [Merriweather](https://fonts.google.com/specimen/Merriweather), [Noto Sans](https://fonts.google.com/specimen/Noto+Sans), [Roboto](https://fonts.google.com/specimen/Roboto), [LXGW WenKai](https://github.com/lxgw/LxgwWenKai), [MiSans](https://hyperos.mi.com/font/en/), [Source Han](https://github.com/adobe-fonts/source-han-sans/), [WenQuanYi Micro Hei](http://wenq.org/wqy2/)
+
+We would also like to thank the [Web Chinese Fonts Plan](https://chinese-font.netlify.app) for offering open-source tools that enable the use of Chinese fonts on the web.
+
+---
+
+<div align="center" style="color: gray;">Happy reading with Readest!</div>

@@ -8,7 +8,7 @@ import {
   getPageProgressionRTL,
 } from '@/libs/document';
 import { BOOK_IDS_SEPARATOR } from '@/services/constants';
-import { BookConfig, PageInfo } from '@/types/book';
+import { BookConfig, PageInfo, ViewSettings } from '@/types/book';
 import { FoliateView, wrappedFoliateView } from '@/types/view';
 import { Insets } from '@/types/misc';
 import { useEnv } from '@/context/EnvContext';
@@ -45,6 +45,7 @@ import {
   applyThemeModeClass,
   applyTranslationStyle,
   getOverlayerBlendMode,
+  getPDFPageColors,
   getStyles,
   getThemeCode,
   keepTextAlignment,
@@ -73,6 +74,7 @@ import {
   handleTouchCancel,
 } from '../utils/iframeEventHandlers';
 import { getMaxInlineSize } from '@/utils/config';
+import { getLockedPanX } from '../utils/lockedPan';
 import { getDirFromUILanguage } from '@/utils/rtl';
 import { isTauriAppPlatform } from '@/services/environment';
 import { TransformContext } from '@/services/transformers/types';
@@ -107,6 +109,7 @@ import AutoScrollSpeedOverlay from './AutoScrollSpeedOverlay';
 import Spinner from '@/components/Spinner';
 import KOSyncConflictResolver from './KOSyncResolver';
 import ImageViewer from './ImageViewer';
+import ImageContextMenu from './ImageContextMenu';
 import TableViewer from './TableViewer';
 import ExternalLinkConfirm from './ExternalLinkConfirm';
 import { getTTSMiniPlayerClearance } from '../utils/ttsMiniPlayerPosition';
@@ -127,7 +130,7 @@ const FoliateViewer: React.FC<{
   const _ = useTranslation();
   const searchParams = useSearchParams();
   const { appService, envConfig } = useEnv();
-  const { themeCode, isDarkMode } = useThemeStore();
+  const { themeCode, isDarkMode, isIPhoneDuo } = useThemeStore();
   const { settings } = useSettingsStore();
   const { loadFont, loadCustomFonts, getLoadedFonts, getAvailableFonts } = useCustomFontStore();
   // Per-field selectors — see store/readerProgressStore.ts header for the
@@ -143,6 +146,8 @@ const FoliateViewer: React.FC<{
   const setViewSettings = useReaderStore((s) => s.setViewSettings);
   const getParallels = useParallelViewStore((s) => s.getParallels);
   const getBookData = useBookDataStore((s) => s.getBookData);
+  const getConfig = useBookDataStore((s) => s.getConfig);
+  const setConfig = useBookDataStore((s) => s.setConfig);
   const { applyBackgroundTexture } = useBackgroundTexture();
   const { applyEinkMode } = useEinkMode();
   const { registerBrightnessListeners, overlayVisible, overlayLevel } =
@@ -150,6 +155,10 @@ const FoliateViewer: React.FC<{
   const bookData = getBookData(bookKey);
   const viewState = getViewState(bookKey);
   const viewSettings = getViewSettings(bookKey);
+  // PDF theme colors reach the canvas through CanvasRenderingContext2D.filter,
+  // which WebKit lacks, so a setting synced from another device can't apply here.
+  const getPageViewSettings = (vs: ViewSettings): ViewSettings =>
+    appService?.supportsCanvasContext2DFilter ? vs : { ...vs, applyThemeToPDF: false };
 
   const viewRef = useRef<FoliateView | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -251,6 +260,11 @@ const FoliateViewer: React.FC<{
       detail.range,
       detail.fraction,
     );
+    // Only the primary view keeps its pan, as only it keeps its location.
+    const panX = getViewState(bookKey)?.isPrimary
+      ? getLockedPanX(viewRef.current, getViewSettings(bookKey))
+      : undefined;
+    if (panX !== undefined && panX !== getConfig(bookKey)?.panX) setConfig(bookKey, { panX });
   }, [bookKey, setProgress, cancelRelocateScheduled]);
 
   const progressRelocateHandler = (event: Event) => {
@@ -404,15 +418,10 @@ const FoliateViewer: React.FC<{
       });
 
       if (bookDoc.rendition?.layout === 'pre-paginated') {
-        applyFixedlayoutStyles(detail.doc, viewSettings, undefined, bookData.book?.format);
-        const themeCode = getThemeCode();
-        if (bookData.book?.format === 'PDF' && themeCode && renderer) {
-          renderer.pageColors = viewSettings.applyThemeToPDF
-            ? {
-                background: themeCode.bg,
-                foreground: themeCode.fg,
-              }
-            : undefined;
+        const pageSettings = getPageViewSettings(viewSettings);
+        applyFixedlayoutStyles(detail.doc, pageSettings, undefined, bookData.book?.format);
+        if (bookData.book?.format === 'PDF' && renderer) {
+          renderer.pageColors = getPDFPageColors(pageSettings, getThemeCode());
         }
       }
 
@@ -829,6 +838,9 @@ const FoliateViewer: React.FC<{
         view.renderer.setAttribute('scale-factor', viewSettings.zoomLevel);
         view.renderer.setAttribute('scroll-gap', getScrollGapAttr(viewSettings.webtoonMode));
         view.renderer.toggleAttribute('lock-pan-x', !!viewSettings.lockHorizontalPan);
+        if (viewSettings.lockHorizontalPan && config.panX !== undefined) {
+          view.renderer.panX = config.panX;
+        }
       } else {
         view.renderer.setAttribute('max-column-count', maxColumnCount);
         view.renderer.setAttribute('max-inline-size', `${maxInlineSize}px`);
@@ -906,9 +918,14 @@ const FoliateViewer: React.FC<{
     const moreRightInset = showDoubleBorderHeader ? 32 : 0;
     const moreLeftInset = showDoubleBorderFooter ? 32 : 0;
     const topMargin = (showTopHeader ? insets.top : viewInsets.top) + moreTopInset;
-    const rightMargin = insets.right + moreRightInset;
+    // On iPhone Duo the horizontal safe-area insets are applied to the viewer
+    // container itself (see the render below), not folded into these margins:
+    // the paginator treats a horizontal margin as a gutter and puts only half
+    // of it (a quarter in two-column mode) on the outer edge, which left text
+    // under the side status strip (#6307). Elsewhere they stay in the margins.
+    const rightMargin = (isIPhoneDuo ? viewInsets.right : insets.right) + moreRightInset;
     const bottomMargin = (showBottomFooter ? insets.bottom : viewInsets.bottom) + moreBottomInset;
-    const leftMargin = insets.left + moreLeftInset;
+    const leftMargin = (isIPhoneDuo ? viewInsets.left : insets.left) + moreLeftInset;
     viewRef.current?.renderer.setAttribute('margin-top', `${topMargin}px`);
     viewRef.current?.renderer.setAttribute('margin-right', `${rightMargin}px`);
     viewRef.current?.renderer.setAttribute('margin-bottom', `${bottomMargin}px`);
@@ -931,6 +948,11 @@ const FoliateViewer: React.FC<{
       setScrollMargins({ top: 0, bottom: 0 });
     }
     viewRef.current?.renderer.setAttribute('gap', `${viewSettings.gapPercent}%`);
+    if (viewSettings.columnGapPx > 0) {
+      viewRef.current?.renderer.setAttribute('column-gap', `${viewSettings.columnGapPx}px`);
+    } else {
+      viewRef.current?.renderer.removeAttribute('column-gap');
+    }
     viewRef.current?.renderer.setAttribute(
       'scroll-direction',
       viewSettings.scrolledDirection === 'horizontal' ? 'horizontal' : 'vertical',
@@ -983,11 +1005,12 @@ const FoliateViewer: React.FC<{
     if (viewRef.current && viewRef.current.renderer) {
       const renderer = viewRef.current.renderer;
       const viewSettings = getViewSettings(bookKey)!;
+      const pageSettings = getPageViewSettings(viewSettings);
       viewRef.current.renderer.setStyles?.(getStyles(viewSettings, undefined, getLoadedFonts()));
       const docs = viewRef.current.renderer.getContents();
       docs.forEach(({ doc }) => {
         if (bookDoc.rendition?.layout === 'pre-paginated') {
-          applyFixedlayoutStyles(doc, viewSettings, undefined, bookData?.book?.format);
+          applyFixedlayoutStyles(doc, pageSettings, undefined, bookData?.book?.format);
         }
         applyThemeModeClass(doc, isDarkMode);
         applyScrollModeClass(doc, viewSettings.scrolled || false);
@@ -996,12 +1019,7 @@ const FoliateViewer: React.FC<{
       });
 
       if (bookData?.book?.format === 'PDF' && themeCode && renderer) {
-        renderer.pageColors = viewSettings.applyThemeToPDF
-          ? {
-              background: themeCode.bg,
-              foreground: themeCode.fg,
-            }
-          : undefined;
+        renderer.pageColors = getPDFPageColors(pageSettings, themeCode);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1031,7 +1049,7 @@ const FoliateViewer: React.FC<{
         isBwEink: !!viewSettings.isEink && !viewSettings.isColorEink,
         isFixedLayout: bookDoc.rendition?.layout === 'pre-paginated',
         invertImgColorInDark: !!viewSettings.invertImgColorInDark,
-        applyThemeToPDF: !!viewSettings.applyThemeToPDF,
+        applyThemeToPDF: !!getPageViewSettings(viewSettings).applyThemeToPDF,
         format: bookData?.book?.format,
       }),
     );
@@ -1113,6 +1131,7 @@ const FoliateViewer: React.FC<{
     insets.right,
     insets.bottom,
     insets.left,
+    isIPhoneDuo,
     // getViewInsets swaps the full top/bottom bands for the compact ones once
     // the page turns sideways, so the margins follow the axis too.
     viewSettings?.vertical,
@@ -1136,6 +1155,7 @@ const FoliateViewer: React.FC<{
 
   return (
     <>
+      <ImageContextMenu bookKey={bookKey} />
       {selectedImage && (
         <ImageViewer
           gridInsets={gridInsets}
@@ -1166,6 +1186,13 @@ const FoliateViewer: React.FC<{
         style={{
           paddingTop: scrollMargins.top,
           paddingBottom: scrollMargins.bottom,
+          // Keep the whole page area inside the horizontal safe area (#6307).
+          ...(isIPhoneDuo
+            ? {
+                left: `${gridInsets.left}px`,
+                width: `calc(100% - ${gridInsets.left + gridInsets.right}px)`,
+              }
+            : {}),
         }}
         {...mouseHandlers}
         {...touchHandlers}
