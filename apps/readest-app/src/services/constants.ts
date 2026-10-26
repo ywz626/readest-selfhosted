@@ -35,10 +35,16 @@ import {
   OneDriveSettings,
   ICloudSettings,
 } from '@/types/settings';
-import { UserStorageQuota, UserDailyTranslationQuota } from '@/types/quota';
+import { UserStorageQuota, UserDailyTranslationQuota, UserDailyTTSQuota } from '@/types/quota';
 import { getDefaultMaxBlockSize, getDefaultMaxInlineSize } from '@/utils/config';
 import { stubTranslation as _ } from '@/utils/misc';
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
+import {
+  DEFAULT_HANDWRITING_COLOR,
+  DEFAULT_HANDWRITING_WIDTH,
+  DEFAULT_MARKER_COLOR,
+  DEFAULT_MARKER_WIDTH,
+} from './handwriting/model';
 import { DEFAULT_ANNOTATION_TOOLBAR_ITEMS } from '@/utils/annotationToolbar';
 import { DEFAULT_SENTENCE_GAP_SEC } from './tts/EdgeTTSClient';
 import { DEFAULT_PARAGRAPH_GAP_SEC } from './tts/TTSController';
@@ -68,6 +74,12 @@ export const SUPPORTED_BOOK_EXTS = [
   'htm',
   'mhtml',
   'mht',
+  'rbooks',
+  // docx/rtf are never parsed natively: importBook converts them to EPUB and
+  // imports the result. Listed here so every picker / drag-drop / folder-walk
+  // entry point lets them through to that conversion.
+  'docx',
+  'rtf',
 ];
 export const BOOK_ACCEPT_FORMATS = SUPPORTED_BOOK_EXTS.map((ext) => `.${ext}`).join(', ');
 export const BOOK_UNGROUPED_NAME = '';
@@ -294,6 +306,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
     opds_catalog: true,
     abs_server: true,
     custom_translator: true,
+    custom_tts: true,
     settings: true,
   },
 };
@@ -332,6 +345,11 @@ export const DEFAULT_READSETTINGS: ReadSettings = {
   wordLensAutoDownload: true,
 
   customThemes: [],
+  handwritingColor: DEFAULT_HANDWRITING_COLOR,
+  handwritingWidth: DEFAULT_HANDWRITING_WIDTH,
+  handwritingTool: 'pen',
+  handwritingMarkerColor: DEFAULT_MARKER_COLOR,
+  handwritingMarkerWidth: DEFAULT_MARKER_WIDTH,
   highlightStyle: 'highlight',
   highlightStyles: {
     highlight: 'yellow',
@@ -475,6 +493,7 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   sideBarTab: 'toc',
   uiLanguage: '',
   sortedTOC: false,
+  showTOCThumbnails: true,
 
   doubleBorder: false,
   borderColor: 'red',
@@ -1036,6 +1055,13 @@ export const DEFAULT_DAILY_TRANSLATION_QUOTA: UserDailyTranslationQuota = {
   free: 10 * 1024,
   plus: 100 * 1024,
   pro: 500 * 1024,
+  purchase: 0,
+};
+
+export const DEFAULT_DAILY_TTS_QUOTA: UserDailyTTSQuota = {
+  free: 0,
+  plus: 500_000,
+  pro: 1_000_000,
   purchase: 0,
 };
 

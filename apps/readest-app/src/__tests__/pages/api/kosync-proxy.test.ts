@@ -26,7 +26,7 @@ describe('KOSync proxy boundaries', () => {
     'https://sync.example.com/admin?',
     'https://sync.example.com/?next=admin',
     'https://sync.example.com/#frag',
-    'https://sync.example.com/admin',
+    'https://sync.example.com/api/v1/koreader?',
     'https://sync.example.com/%ZZ',
     'https://user:password@sync.example.com',
   ])('rejects a non-origin server URL: %s', async (serverUrl) => {
@@ -51,6 +51,22 @@ describe('KOSync proxy boundaries', () => {
       );
     },
   );
+
+  it.each([
+    'https://books.example.com/api/v1/koreader',
+    'https://books.example.com/api/v1/koreader/',
+  ])('keeps the server path of a mounted KOSync server: %s', async (serverUrl) => {
+    // BookOrbit mounts KOSync at {server}/api/v1/koreader; CWA and others use a
+    // sub-path too, so the proxy must not reduce the server URL to its origin.
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await call('/users/auth', serverUrl);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://books.example.com/api/v1/koreader/users/auth',
+      expect.anything(),
+    );
+  });
 
   it('allows fetching progress for a document hash', async () => {
     const endpoint = '/syncs/progress/0123456789abcdef0123456789abcdef';

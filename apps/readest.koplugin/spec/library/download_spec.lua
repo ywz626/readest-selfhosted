@@ -44,7 +44,7 @@ describe("background book download", function()
             settings = { user_id = "alice" }, download_dir = tmp,
             sync_auth = {
                 withFreshToken = function(_, _, _, cb) cb(true) end,
-                getReadestSyncClient = function() return {
+                getAuthenticatedClient = function() return {
                     getDownloadUrl = function(_, _, cb) cb(true, { downloadUrl = "https://example.test/book" }) end,
                 } end,
             },
@@ -77,6 +77,23 @@ describe("background book download", function()
         assert.are.equal(1, calls)
         local f = assert(io.open(path, "rb"))
         assert.are.equal("book contents", f:read("*a")); f:close()
+    end)
+
+    it("connects over IPv4 in a macOS worker, where forked AF_UNSPEC lookups crash (#6933)", function()
+        local socket, family = package.loaded["socket"]
+        socket.tcp = function() return { family = "unspec" } end
+        socket.tcp4 = function() return { family = "inet", settimeout = function() end } end
+        package.loaded["socket.http"].request = function(req)
+            family = socket.tcp().family
+            req.sink(nil)
+            return 1, 200
+        end
+        local saved_os = jit.os
+        jit.os = "OSX"
+        syncbooks.downloadBook(book, opts, function() end)
+        child(123, 42)
+        jit.os = saved_os
+        assert.are.equal("inet", family)
     end)
 
     it("reports bytes while running without blocking the next UI tick", function()

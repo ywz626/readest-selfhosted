@@ -6,18 +6,18 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 vi.mock('@tauri-apps/api/path', () => ({
-  tempDir: vi.fn(async () => '/tmp'),
+  appCacheDir: vi.fn(async () => '/data/user/0/com.bilingify.readest/cache'),
   join: vi.fn(async (...parts: string[]) => parts.join('/')),
 }));
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
-  BaseDirectory: { Temp: 1 },
+  BaseDirectory: { Temp: 1, AppCache: 2 },
   writeFile: vi.fn(async () => undefined),
   remove: vi.fn(async () => undefined),
 }));
 
 import { addPluginListener, invoke, type PluginListener } from '@tauri-apps/api/core';
-import { remove, writeFile } from '@tauri-apps/plugin-fs';
+import { BaseDirectory, remove, writeFile } from '@tauri-apps/plugin-fs';
 import { NativeNarrationPlayer } from '@/services/tts/mediaOverlay/NativeNarrationPlayer';
 
 describe('NativeNarrationPlayer', () => {
@@ -27,6 +27,7 @@ describe('NativeNarrationPlayer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(writeFile).mockResolvedValue(undefined);
     playoutEvents = null;
     controlCalls = [];
     position = { session: 3, index: 0, positionMs: 1500, playing: true };
@@ -76,6 +77,33 @@ describe('NativeNarrationPlayer', () => {
     await player.shutdown();
   });
 
+  test('stages embedded narration in the app cache', async () => {
+    // Android 10 resolves Temp to /data/local/tmp, which ordinary apps cannot write.
+    vi.mocked(writeFile).mockImplementation(async (_path, _bytes, options) => {
+      if (options?.baseDir === BaseDirectory.Temp) {
+        throw new Error('Permission denied (os error 13)');
+      }
+    });
+    const player = new NativeNarrationPlayer();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const blob = new Blob([bytes]);
+    const directory = '/data/user/0/com.bilingify.readest/cache';
+    try {
+      await player.load('Audio/ch1.mp4', blob);
+      const name = vi.mocked(writeFile).mock.calls[0]![0];
+      expect(writeFile).toHaveBeenCalledWith(name, bytes, { baseDir: BaseDirectory.AppCache });
+      expect(controlCalls.find((call) => call['action'] === 'load')?.['path']).toBe(
+        `${directory}/${name}`,
+      );
+
+      await player.load('Audio/ch1.mp4', blob, 10);
+      expect(writeFile).toHaveBeenCalledOnce();
+    } finally {
+      await player.shutdown();
+    }
+    expect(remove).toHaveBeenCalledWith(`${directory}/${vi.mocked(writeFile).mock.calls[0]![0]}`);
+  });
+
   test('loads an existing local audiobook path without copying or deleting it', async () => {
     const player = new NativeNarrationPlayer();
     await player.loadPath('hash/audiobook/book.m4b', '/books/hash/audiobook/book.m4b', 20);
@@ -88,6 +116,23 @@ describe('NativeNarrationPlayer', () => {
 
     await player.shutdown();
     expect(remove).not.toHaveBeenCalledWith('/books/hash/audiobook/book.m4b');
+  });
+
+  test('stages a copy of an entry it last played from the book file', async () => {
+    const player = new NativeNarrationPlayer();
+    await player.loadPath('Audio/track.mp3', '/books/hash/book.epub', 0, {
+      start: 64,
+      end: 72,
+      contentType: 'audio/mpeg',
+    });
+    await player.load('Audio/track.mp3', new Blob([new Uint8Array(8)]), 0);
+
+    expect(writeFile).toHaveBeenCalledOnce();
+    const loads = controlCalls.filter((call) => call['action'] === 'load');
+    expect(loads.at(-1)?.['path']).toMatch(/mo-narration-.*\.mp3$/);
+    expect(loads.at(-1)).not.toHaveProperty('start');
+
+    await player.shutdown();
   });
 
   test('ended events notify listeners', async () => {

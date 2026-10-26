@@ -120,6 +120,8 @@
   "{{alias}} wants to send you {{count}} book(s)_other": "{{alias}} wants to send you {{count}} books",
   "{{count}} unsupported file(s) will be skipped_one": "{{count}} unsupported file will be skipped",
   "{{count}} unsupported file(s) will be skipped_other": "{{count}} unsupported files will be skipped",
+  "{{count}} voices available_one": "{{count}} voice available",
+  "{{count}} voices available_other": "{{count}} voices available",
   "{{time}} and {{count}} pages left in book_one": "{{time}} and {{count}} page left in book",
   "{{time}} and {{count}} pages left in book_other": "{{time}} and {{count}} pages left in book",
   "{{time}} and {{count}} pages left in chapter_one": "{{time}} and {{count}} page left in chapter",
@@ -127,5 +129,11 @@
   "{{count}} pages left_one": "{{count}} page left",
   "{{count}} pages left_other": "{{count}} pages left",
   "{{time}} and {{count}} pages left_one": "{{time}} and {{count}} page left",
-  "{{time}} and {{count}} pages left_other": "{{time}} and {{count}} pages left"
+  "{{time}} and {{count}} pages left_other": "{{time}} and {{count}} pages left",
+  "Creating package for {{count}} book(s)..._one": "Creating package for {{count}} book...",
+  "Creating package for {{count}} book(s)..._other": "Creating package for {{count}} books...",
+  "{{count}} book(s) omitted (file not available locally)_one": "{{count}} book omitted (file not available locally)",
+  "{{count}} book(s) omitted (file not available locally)_other": "{{count}} books omitted (files not available locally)",
+  "Restored collection \"{{name}}\" ({{count}} books)_one": "Restored collection \"{{name}}\" ({{count}} book)",
+  "Restored collection \"{{name}}\" ({{count}} books)_other": "Restored collection \"{{name}}\" ({{count}} books)"
 }

@@ -45,11 +45,13 @@ const setup = ({
   pageList = undefined as unknown,
   pageItem = undefined as unknown,
   showFraction = false,
+  fraction = undefined as number | undefined,
 } = {}) => {
   mocks.state.progress = {
     pageinfo: { current: 93, next: 94, total: 251 },
     section: { current: 4, total: 30 },
     pageItem,
+    fraction,
   };
   mocks.state.viewSettings = { progressStyle };
   mocks.state.bookData = { isFixedLayout, bookDoc: { pageList } };
@@ -76,6 +78,17 @@ describe('PageJumpInput', () => {
     expect(input.value).toBe('37%');
   });
 
+  it('reads the continuous fraction for the percentage label of reflowable books', () => {
+    const { input } = setup({ progressStyle: 'percentage', fraction: 0.3 });
+    expect(input.value).toBe('30%');
+  });
+
+  it('keeps the page-count percentage for fixed-layout books', () => {
+    // section 4 of 30 -> (4 + 1) / 30 = 17%, not the byte-weighted fraction
+    const { input } = setup({ progressStyle: 'percentage', isFixedLayout: true, fraction: 0.3 });
+    expect(input.value).toBe('17%');
+  });
+
   it('always shows the page fraction when showFraction is set', () => {
     const { input } = setup({ progressStyle: 'percentage', showFraction: true });
     expect(input.value).toBe('94 / 251');
@@ -87,6 +100,17 @@ describe('PageJumpInput', () => {
     mocks.state.bookData = { isFixedLayout: false, bookDoc: {} };
     const { queryByRole } = render(<PageJumpInput bookKey='book1' />);
     expect(queryByRole('textbox')).toBeNull();
+  });
+
+  it('keeps the last label while progress is momentarily invalid (#6646)', () => {
+    const { input, rerender, getByRole } = setup();
+    mocks.state.progress = {
+      pageinfo: { current: Number.NaN, next: Number.NaN, total: 251 },
+      section: { current: 0, total: 30 },
+    };
+    rerender(<PageJumpInput bookKey='book1' />);
+    expect(getByRole('textbox', { name: 'Go to Page' })).toBe(input);
+    expect(input.value).toBe('94 / 251');
   });
 
   it('keeps the same text on focus so the layout stays stable', () => {
@@ -117,6 +141,34 @@ describe('PageJumpInput', () => {
     fireEvent.change(input, { target: { value: '120' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(mocks.view.goToFraction.mock.calls[0]![0]).toBeCloseTo(119.5 / 251);
+  });
+
+  it('jumps when the field loses focus after an edit (no Enter key on iOS number pads)', () => {
+    const { input } = setup();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '120 / 251' } });
+    fireEvent.blur(input);
+    expect(mocks.view.goToFraction).toHaveBeenCalledTimes(1);
+    expect(mocks.view.goToFraction.mock.calls[0]![0]).toBeCloseTo(119.5 / 251);
+    expect(input.value).toBe('94 / 251');
+  });
+
+  it('does not jump when the field loses focus unedited', () => {
+    const { input } = setup();
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+    expect(mocks.view.goToFraction).not.toHaveBeenCalled();
+  });
+
+  it('does not jump when the footer bar hides mid-edit', () => {
+    mocks.state.hoveredBookKey = 'book1';
+    const { input, rerender } = setup();
+    input.focus();
+    fireEvent.change(input, { target: { value: '120 / 251' } });
+    mocks.state.hoveredBookKey = '';
+    rerender(<PageJumpInput bookKey='book1' />);
+    expect(document.activeElement).not.toBe(input);
+    expect(mocks.view.goToFraction).not.toHaveBeenCalled();
   });
 
   it('clamps out-of-range pages to the last page', () => {

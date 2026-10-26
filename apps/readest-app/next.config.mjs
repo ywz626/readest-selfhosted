@@ -43,11 +43,14 @@ const nextConfig = {
   },
   devIndicators: false,
   experimental: {
-    // Dev caching is on by default since Next 16.1. We deliberately do NOT
-    // enable Turbopack's build cache (turbopackFileSystemCacheForBuild, beta):
-    // a build interrupted mid-compile leaves a partial cache that the next
-    // build mishandles, fanning out workers until it exhausts RAM.
+    // Dev caching is on by default since Next 16.1. We deliberately turn OFF
+    // Turbopack's build cache, which Next 16.4 enables by default: a build
+    // interrupted mid-compile leaves a partial cache that the next build
+    // mishandles, fanning out workers until it exhausts RAM, and a warm cache
+    // can abort with a turbo-tasks panic (`get_disjoint_mut` was called with
+    // equal keys) when the import graph changes.
     turbopackFileSystemCacheForDev: true,
+    turbopackFileSystemCacheForBuild: false,
     // `middleware.ts` matches /api/*, so Next buffers a clone of every request
     // body to let both the middleware and the route handler read it. Past this
     // limit the clone is truncated and the handler sees a short body ending
@@ -84,8 +87,15 @@ const nextConfig = {
       // can't find fflate (only installed in this app's node_modules).
       fflate: path.resolve(__dirname, 'node_modules/fflate'),
       ...(appPlatform !== 'web' ? { '@readest/turso-database-wasm/webpack': false } : {}),
+      // music-metadata only parses user-picked files in the browser; its
+      // file-type dependency leaves a webpackIgnore'd `import('strtok3')` in
+      // the server bundle that the OpenNext esbuild pass cannot resolve.
       ...(isServer && appPlatform === 'web'
-        ? { '@readest/turso-database-wasm/webpack': false, 'jieba-wasm': false }
+        ? {
+            '@readest/turso-database-wasm/webpack': false,
+            'jieba-wasm': false,
+            'music-metadata': false,
+          }
         : {}),
     };
     return config;

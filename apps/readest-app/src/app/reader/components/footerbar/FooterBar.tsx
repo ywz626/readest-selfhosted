@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useSpatialNavigation } from '@/app/reader/hooks/useSpatialNavigation';
+import { useWindowFocusRestore } from '@/app/reader/hooks/useWindowFocusRestore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -16,7 +17,7 @@ import { isForcedMobileLayout } from '../../utils/mobileLayout';
 import { RSVPControl } from '../rsvp';
 import MobileFooterBar from './MobileFooterBar';
 import DesktopFooterBar from './DesktopFooterBar';
-import { getFooterBarPosition } from './position';
+import { getFooterBarPosition, HORIZONTAL_SCROLLBAR_LIFT } from './position';
 import TTSControl from '../tts/TTSControl';
 
 const FooterBar: React.FC<FooterBarProps> = ({
@@ -48,6 +49,7 @@ const FooterBar: React.FC<FooterBarProps> = ({
 
   const docs = view?.renderer.getContents() ?? [];
   const pointerInDoc = docs.some(({ doc }) => doc?.body?.style.cursor === 'pointer');
+  const isWindowFocusRestore = useWindowFocusRestore();
 
   const progressInfo = useMemo(
     () => (FIXED_LAYOUT_FORMATS.has(bookFormat) ? section : pageinfo),
@@ -227,7 +229,9 @@ const FooterBar: React.FC<FooterBarProps> = ({
     !isSideBarVisible && appService?.hasRoundedWindow && 'rounded-window-bottom-left',
     isHoveredAnim && 'hover-bar-anim',
     !forceMobileLayout &&
-      (needHorizontalScroll ? 'sm:bottom-3! sm:h-10! sm:justify-end' : 'sm:justify-center'),
+      (needHorizontalScroll
+        ? [HORIZONTAL_SCROLLBAR_LIFT, 'sm:h-10! sm:justify-end']
+        : 'sm:justify-center'),
     isVisible
       ? 'pointer-events-auto translate-y-0 opacity-100'
       : forceMobileLayout
@@ -245,11 +249,24 @@ const FooterBar: React.FC<FooterBarProps> = ({
         tabIndex={-1}
         className={clsx(
           'absolute bottom-0 left-0 z-10 flex h-[52px] w-full',
-          needHorizontalScroll && 'sm:bottom-3! sm:h-7!',
+          needHorizontalScroll && [HORIZONTAL_SCROLLBAR_LIFT, 'sm:h-7!'],
           isMobile || pointerInDoc ? 'pointer-events-none' : '',
         )}
         onMouseEnter={() => !isMobile && setHoveredBookKey(bookKey)}
         onTouchStart={() => !isMobile && setHoveredBookKey(bookKey)}
+        // A pointer that crosses the strip straight into the book (coming up
+        // from a taskbar that covers most of it) never enters the footer, so
+        // the footer's own mouseleave never comes (#6999).
+        onMouseLeave={(e) => {
+          const rect = footerBarRef.current?.getBoundingClientRect();
+          const inFooter =
+            !!rect &&
+            e.clientX >= rect.left &&
+            e.clientX < rect.right &&
+            e.clientY >= rect.top &&
+            e.clientY < rect.bottom;
+          if (!isMobile && !inFooter) setHoveredBookKey('');
+        }}
       />
 
       {/* Main footer container */}
@@ -259,7 +276,9 @@ const FooterBar: React.FC<FooterBarProps> = ({
         aria-label={_('Footer Bar')}
         className={containerClasses}
         dir={viewSettings?.rtl ? 'rtl' : 'ltr'}
-        onFocus={() => !appService?.isMobile && setHoveredBookKey(bookKey)}
+        onFocus={() =>
+          !appService?.isMobile && !isWindowFocusRestore() && setHoveredBookKey(bookKey)
+        }
         onMouseLeave={() => window.innerWidth >= 640 && setHoveredBookKey('')}
       >
         <MobileFooterBar {...commonProps} />

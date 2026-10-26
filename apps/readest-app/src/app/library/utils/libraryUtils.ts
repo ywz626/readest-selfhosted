@@ -7,6 +7,7 @@ import {
 import {
   formatAuthors,
   formatTitle,
+  getBookPageCount,
   getContributorNames,
   isCurrentlyReadingBook,
 } from '@/utils/book';
@@ -468,6 +469,19 @@ export const withPinnedShelfItemsFirst =
     return compare(a, b);
   };
 
+// localeCompare with an options object builds a new collator on every call, which
+// is ~20x slower in V8, so title sorts reuse one numeric collator per locale.
+const numericCollators = new Map<string, Intl.Collator>();
+const compareTitles = (a: string, b: string, uiLanguage: string): number => {
+  const locale = uiLanguage || navigator.language;
+  let collator = numericCollators.get(locale);
+  if (!collator) {
+    collator = new Intl.Collator(locale, { numeric: true });
+    numericCollators.set(locale, collator);
+  }
+  return collator.compare(a, b);
+};
+
 const compareBookByKey = (
   a: Book,
   b: Book,
@@ -479,7 +493,7 @@ const compareBookByKey = (
     case LibrarySortByType.Title: {
       const aTitle = formatTitle(a.title);
       const bTitle = formatTitle(b.title);
-      return aTitle.localeCompare(bTitle, uiLanguage || navigator.language);
+      return compareTitles(aTitle, bTitle, uiLanguage);
     }
     case LibrarySortByType.Author: {
       const aAuthors = formatAuthors(a.author, a?.primaryLanguage || 'en', true);
@@ -494,6 +508,8 @@ const compareBookByKey = (
       return a.format.localeCompare(b.format, uiLanguage || navigator.language);
     case LibrarySortByType.Progress:
       return getBookReadRatio(a) - getBookReadRatio(b);
+    case LibrarySortByType.Pages:
+      return (getBookPageCount(a) ?? 0) - (getBookPageCount(b) ?? 0);
     case LibrarySortByType.Series: {
       // Group by series name first so books of the same series stay consecutive,
       // then order within a series by index. Comparing index alone would interleave
@@ -917,6 +933,9 @@ export const getBookSortValue = (book: Book, sortBy: LibrarySortByType): number 
     case LibrarySortByType.Progress:
       return getBookReadRatio(book);
 
+    case LibrarySortByType.Pages:
+      return getBookPageCount(book) ?? 0;
+
     case LibrarySortByType.Published: {
       const published = book.metadata?.published;
       if (!published) return 0;
@@ -942,13 +961,16 @@ export const getGroupSortValue = (
   groupBy?: LibraryGroupByType,
 ): number | string => {
   const books = group.books;
+  // A subgroup's name is its full path ("Languages/Chinese"); it sorts among
+  // the parent group's books by its own name, as it is shown (#7062).
+  const name = groupBy === LibraryGroupByType.Group ? group.displayName : group.name;
 
   if (books.length === 0) {
     return sortBy === LibrarySortByType.Title ||
       sortBy === LibrarySortByType.Series ||
       sortBy === LibrarySortByType.Author ||
       sortBy === LibrarySortByType.Format
-      ? group.name
+      ? name
       : 0;
   }
 
@@ -956,7 +978,7 @@ export const getGroupSortValue = (
     case LibrarySortByType.Title:
     case LibrarySortByType.Series:
     case LibrarySortByType.Format:
-      return group.name;
+      return name;
 
     case LibrarySortByType.Author: {
       if (groupBy === LibraryGroupByType.Author) {
@@ -969,7 +991,7 @@ export const getGroupSortValue = (
         return formatAuthors(firstBook.author, firstBook.primaryLanguage || 'en', true);
       }
       // Custom/other groups: fall back to group name
-      return group.name;
+      return name;
     }
 
     case LibrarySortByType.Updated:
@@ -983,6 +1005,10 @@ export const getGroupSortValue = (
     case LibrarySortByType.Progress:
       // Return the most-progressed book's read ratio
       return Math.max(...books.map((b) => getBookReadRatio(b)));
+
+    case LibrarySortByType.Pages:
+      // Return the group's total page count
+      return books.reduce((sum, b) => sum + (getBookPageCount(b) ?? 0), 0);
 
     case LibrarySortByType.Published: {
       // Return the most recent published date
@@ -1011,10 +1037,13 @@ export const compareSortValues = (
   aValue: number | string,
   bValue: number | string,
   uiLanguage: string,
+  sortBy?: LibrarySortByType,
 ): number => {
   // String comparison for text-based sorts
   if (typeof aValue === 'string' && typeof bValue === 'string') {
-    return aValue.localeCompare(bValue, uiLanguage || navigator.language);
+    return sortBy === LibrarySortByType.Title
+      ? compareTitles(aValue, bValue, uiLanguage)
+      : aValue.localeCompare(bValue, uiLanguage || navigator.language);
   }
 
   // Numeric comparison for date-based sorts
@@ -1034,17 +1063,7 @@ export const createGroupSorter =
     const aValue = getGroupSortValue(a, sortBy, groupBy);
     const bValue = getGroupSortValue(b, sortBy, groupBy);
 
-    // String comparison for text-based sorts
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      return aValue.localeCompare(bValue, uiLanguage || navigator.language);
-    }
-
-    // Numeric comparison for date-based sorts
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return aValue - bValue;
-    }
-
-    return 0;
+    return compareSortValues(aValue, bValue, uiLanguage, sortBy);
   };
 
 export type BookContextMenuItemId =
@@ -1217,4 +1236,10 @@ export const getBookContextMenuItemIds = (
   }
   ids.push('delete');
   return ids;
+};
+
+/** The group every book shares, or undefined when they don't share one. */
+export const getCommonGroupName = (books: Book[]): string | undefined => {
+  const name = books[0]?.groupName;
+  return name && books.every((book) => book.groupName === name) ? name : undefined;
 };

@@ -22,6 +22,7 @@ const hoisted = vi.hoisted(() => ({
   goTo: vi.fn(),
   showTransientHighlight: vi.fn(),
   isLinkTargetVisible: vi.fn(),
+  applyLinkHitArea: vi.fn(),
 }));
 
 vi.mock('foliate-js/footnotes.js', () => {
@@ -90,6 +91,8 @@ vi.mock('@/store/customFontStore', () => ({
 }));
 
 vi.mock('@/utils/style', () => ({
+  applyLinkHitArea: hoisted.applyLinkHitArea,
+  keepTextAlignment: () => {},
   getBaseFontFamily: () => '"Reader Font", serif',
   getBaseFontSize: () => 22,
   getFootnoteStyles: () => '',
@@ -205,6 +208,41 @@ const openFootnotePopup = async (href = HREF) => {
   });
   return view;
 };
+
+describe('FootnotePopup link hit area', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+    hoisted.handlers.length = 0;
+    hoisted.onLinkClick.current = null;
+    hoisted.applyLinkHitArea.mockReset();
+  });
+
+  it('opts the popup document in to the enlarged link hit area', async () => {
+    await renderPopup();
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', HREF);
+    document.body.appendChild(anchor);
+    await act(async () => {
+      hoisted.onLinkClick.current?.(
+        new CustomEvent('link', { detail: { a: anchor, href: HREF }, cancelable: true }),
+      );
+    });
+    const view = createPopupView();
+    const doc = document.implementation.createHTMLDocument();
+    Object.assign((view as unknown as { renderer: object }).renderer, {
+      getContents: () => [{ doc, index: 3 }],
+    });
+    await act(async () => {
+      hoisted.handlers
+        .at(-1)!
+        .dispatchEvent(
+          new CustomEvent('render', { detail: { view, href: HREF, index: 3, extract: null } }),
+        );
+    });
+
+    expect(hoisted.applyLinkHitArea).toHaveBeenCalledWith(doc);
+  });
+});
 
 describe('FootnotePopup jump to location', () => {
   beforeEach(() => {
@@ -347,6 +385,39 @@ describe('FootnotePopup jump to location', () => {
       expect(cleared()).toBe(1);
     });
 
+    // #6804: the Annotator runs the quick action only on a settled selection —
+    // released, not one still being dragged out with the pointer held down.
+    const reportedQuickAction = (dispatch: { mock: { calls: unknown[][] } }) =>
+      dispatch.mock.calls
+        .filter(
+          ([name, detail]) => name === 'footnote-selection' && (detail as { range?: Range }).range,
+        )
+        .map(([, detail]) => (detail as { quickAction?: boolean }).quickAction);
+
+    it('marks a selection settled when the pointer is released', async () => {
+      const { doc, dispatch } = await loadPopupDoc();
+
+      doc.dispatchEvent(new Event('pointerdown'));
+      doc.getSelection()!.selectAllChildren(doc.body.firstChild!);
+      doc.dispatchEvent(new Event('selectionchange'));
+      await settle();
+      doc.dispatchEvent(new Event('pointerup'));
+
+      expect(reportedQuickAction(dispatch)).toEqual([false, true]);
+    });
+
+    it('marks a selection made with no pointer held settled', async () => {
+      const { doc, dispatch } = await loadPopupDoc();
+
+      doc.dispatchEvent(new Event('pointerdown'));
+      doc.dispatchEvent(new Event('pointercancel'));
+      doc.getSelection()!.selectAllChildren(doc.body.firstChild!);
+      doc.dispatchEvent(new Event('selectionchange'));
+      await settle();
+
+      expect(reportedQuickAction(dispatch)).toEqual([true]);
+    });
+
     // A tap elsewhere in the note is how a highlight's toolbar gets dismissed.
     it('reports a clear for a tap that leaves no selection', async () => {
       const { doc, cleared } = await loadPopupDoc();
@@ -414,6 +485,26 @@ describe('FootnotePopup jump to location', () => {
     });
     Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
     expect(screen.getByTestId('popup').dataset['open']).toBe('false');
+  });
+
+  it('closes when paragraph mode focuses a different paragraph in this book', async () => {
+    const { unmount } = await renderPopup();
+    try {
+      await openFootnotePopup();
+      expect(screen.getByTestId('popup').dataset['open']).toBe('true');
+
+      await act(async () => {
+        await eventDispatcher.dispatch('paragraph-focus', { bookKey: 'another-book' });
+      });
+      expect(screen.getByTestId('popup').dataset['open']).toBe('true');
+
+      await act(async () => {
+        await eventDispatcher.dispatch('paragraph-focus', { bookKey: BOOK_KEY });
+      });
+      expect(screen.getByTestId('popup').dataset['open']).toBe('false');
+    } finally {
+      unmount();
+    }
   });
 
   // #6390 review: a range-editor preview is dispatched after an await, so it

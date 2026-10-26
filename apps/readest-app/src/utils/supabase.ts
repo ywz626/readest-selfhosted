@@ -26,6 +26,15 @@ const supabaseAnonKey = SELFHOSTED
     process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'] ||
     (b64Key ? atob(b64Key) : '');
 
+// supabase-js persists the session under a key derived from the URL's first
+// host label. Readest Cloud keeps the key from its original host so moving the
+// client to another of its hosts doesn't sign everyone out.
+const READEST_CLOUD_HOSTS = [
+  'readest.supabase.co',
+  'vbsyxfusjjqdxkjqlysc.supabase.co',
+  'auth.readest.com',
+];
+
 export const supabase: SupabaseClient | null = createSupabaseClientSafe();
 
 // Avoid calling createClient with empty url/key (which throws at module load
@@ -34,7 +43,13 @@ export const supabase: SupabaseClient | null = createSupabaseClientSafe();
 function createSupabaseClientSafe(): SupabaseClient | null {
   if (SELFHOSTED) return null;
   if (!supabaseUrl || !supabaseAnonKey) return null;
-  return createClient(supabaseUrl, supabaseAnonKey);
+  return createClient(
+    supabaseUrl,
+    supabaseAnonKey,
+    READEST_CLOUD_HOSTS.includes(new URL(supabaseUrl).hostname)
+      ? { auth: { storageKey: 'sb-readest-auth-token' } }
+      : undefined,
+  );
 }
 
 export const createSupabaseClient = (accessToken?: string) => {

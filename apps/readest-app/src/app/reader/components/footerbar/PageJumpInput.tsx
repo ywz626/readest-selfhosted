@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useBookDataStore } from '@/store/bookDataStore';
-import { formatProgress, getReferencePageInfo } from '@/utils/progress';
+import type { PageInfo } from '@/types/book';
+import { formatProgress, formatProgressPercent, getReferencePageInfo } from '@/utils/progress';
 import { clampPage, findReferencePageHref, fractionForPage, parsePageInput } from './pageJump';
 
 interface PageJumpInputProps {
@@ -16,9 +17,10 @@ interface PageJumpInputProps {
 /**
  * The footer bar's progress label, editable in place: clicking it selects the
  * current page number inside the "94 / 251" text so a target page can be
- * typed over it. Enter jumps there; Escape or blur cancels. An invisible
- * sizer span reserves the label's width so toggling edit mode never shifts
- * the surrounding layout.
+ * typed over it. Enter or leaving the field jumps there (the iOS number pad
+ * has no Enter key, only the keyboard bar's Done); Escape cancels. An
+ * invisible sizer span reserves the label's width so toggling edit mode never
+ * shifts the surrounding layout.
  */
 const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, className }) => {
   const _ = useTranslation();
@@ -34,6 +36,9 @@ const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, cl
   const [draft, setDraft] = useState('');
   const [selectLength, setSelectLength] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set while the field is blurred on purpose, so onBlur doesn't commit.
+  const quietBlurRef = useRef(false);
+  const [lastPageInfo, setLastPageInfo] = useState<PageInfo | null>(null);
 
   useEffect(() => {
     if (!editing) return;
@@ -49,14 +54,27 @@ const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, cl
   useEffect(() => {
     // The footer bar hid (or another book took focus) mid-edit.
     if (hoveredBookKey !== bookKey && document.activeElement === inputRef.current) {
+      quietBlurRef.current = true;
       inputRef.current?.blur();
+      quietBlurRef.current = false;
     }
   }, [hoveredBookKey, bookKey]);
 
   const { section, pageinfo } = progress || {};
-  const pageInfo = bookData?.isFixedLayout ? section : pageinfo;
-  const progressValid = !!pageInfo && pageInfo.total > 0 && pageInfo.current >= 0;
-  if (!progressValid) return null;
+  const livePageInfo = bookData?.isFixedLayout ? section : pageinfo;
+  const liveValid = !!livePageInfo && livePageInfo.total > 0 && livePageInfo.current >= 0;
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (liveValid) setLastPageInfo(livePageInfo);
+  }, [liveValid, livePageInfo]);
+
+  // Keep showing the last valid page while a relocation briefly reports an
+  // invalid one: unmounting the label widens the progress slider under a
+  // dragging cursor, which jumps somewhere else and brings the label back,
+  // looping into a jitter (#6646).
+  const pageInfo = liveValid ? livePageInfo : lastPageInfo;
+  if (!pageInfo) return null;
 
   const progressFraction = (pageInfo.current + 1) / pageInfo.total;
   const referenceInfo =
@@ -72,7 +90,16 @@ const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, cl
     showFraction || progressStyle === 'fraction' ? '{current} / {total}' : '{percent}%';
   const displayText = referenceInfo
     ? `${referenceInfo.current} / ${referenceInfo.total}`
-    : formatProgress(pageInfo.current, pageInfo.total, template, false, 'en', 0);
+    : template === '{percent}%'
+      ? formatProgressPercent(
+          bookData?.isFixedLayout ? undefined : progress?.fraction,
+          pageInfo.current,
+          pageInfo.total,
+          false,
+          'en',
+          0,
+        )
+      : formatProgress(pageInfo.current, pageInfo.total, template, false, 'en', 0);
 
   const total = referenceInfo ? referenceInfo.total : pageInfo.total;
   const currentLabel = referenceInfo ? referenceInfo.current : String(pageInfo.current + 1);
@@ -91,15 +118,19 @@ const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, cl
     }
   };
 
-  const stopEditing = () => {
-    setEditing(false);
-    inputRef.current?.blur();
-  };
+  const initialDraft = `${currentLabel} / ${total}`;
 
   const commitDraft = () => {
+    if (draft === initialDraft) return;
     const page = parsePageInput(draft);
     if (page !== null) jumpToPage(page);
-    stopEditing();
+  };
+
+  const stopEditing = () => {
+    setEditing(false);
+    quietBlurRef.current = true;
+    inputRef.current?.blur();
+    quietBlurRef.current = false;
   };
 
   const text = editing ? draft : displayText;
@@ -131,18 +162,23 @@ const PageJumpInput: React.FC<PageJumpInputProps> = ({ bookKey, showFraction, cl
         onFocus={() => {
           // Keep the "current / total" text as-is (percentage style swaps to
           // it) and pre-select the page portion for type-over editing.
-          setDraft(`${currentLabel} / ${total}`);
+          setDraft(initialDraft);
           setSelectLength(currentLabel.length);
           setEditing(true);
         }}
-        onBlur={() => setEditing(false)}
+        onBlur={() => {
+          setEditing(false);
+          if (!quietBlurRef.current) commitDraft();
+        }}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           // Keep keystrokes away from the reader's page-turn shortcuts and
           // the footer bar's spatial navigation.
           e.stopPropagation();
-          if (e.key === 'Enter') commitDraft();
-          else if (e.key === 'Escape') stopEditing();
+          if (e.key === 'Enter') {
+            commitDraft();
+            stopEditing();
+          } else if (e.key === 'Escape') stopEditing();
         }}
       />
     </div>

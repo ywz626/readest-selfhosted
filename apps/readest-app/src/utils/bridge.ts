@@ -1,6 +1,10 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { getOSPlatform } from '@/utils/misc';
 
+/** Android and iOS native paper renderer; only metadata crosses this command. */
+export const paperCurl = <T>(payload: object) =>
+  invoke<T>('plugin:native-bridge|paper_curl', { payload });
+
 export interface CopyURIRequest {
   uri: string;
   dst: string;
@@ -432,7 +436,7 @@ export interface CoverWebviewRegionResponse {
 
 /**
  * Freeze the on-screen pixels of a webview region behind a native snapshot
- * view that `captureWebviewRegion` does not see (iOS only so far). The
+ * view/window that `captureWebviewRegion` does not see (iOS and Android). The
  * two-column page curl uses it to capture the incoming column under its
  * overlay without ever showing it (#6106). Rejects where unimplemented.
  */
@@ -746,4 +750,40 @@ export async function icloudEnsureDownloaded(
   return invoke<ICloudEnsureDownloadedResponse>('plugin:native-bridge|icloud_ensure_downloaded', {
     payload: request,
   });
+}
+
+// Handwriting (issue #3673): BOOX raw drawing. Go through
+// services/handwriting/booxBackend.ts rather than calling these directly.
+
+export interface QueryPenCapabilitiesResponse {
+  isBoox: boolean;
+  rawDrawing: boolean;
+}
+
+export async function queryPenCapabilities(): Promise<QueryPenCapabilitiesResponse> {
+  return invoke<QueryPenCapabilitiesResponse>('plugin:native-bridge|query_pen_capabilities');
+}
+
+export interface StartRawDrawingRequest {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  strokeWidth: number;
+  strokeColor: string;
+}
+
+export async function startRawDrawing(request: StartRawDrawingRequest): Promise<void> {
+  await invoke('plugin:native-bridge|start_raw_drawing', { payload: request });
+}
+
+export async function stopRawDrawing(): Promise<void> {
+  await invoke('plugin:native-bridge|stop_raw_drawing');
+}
+
+export type PenEventKind = 'DRAW_MOVE' | 'DRAW_END' | 'ERASE_MOVE' | 'ERASE_END';
+
+export interface PenStrokeBatch {
+  kind: PenEventKind;
+  points: { x: number; y: number; pressure: number }[];
 }

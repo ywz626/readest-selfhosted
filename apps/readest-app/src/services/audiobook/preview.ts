@@ -2,6 +2,9 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 
 import type { AppService, BaseDir } from '@/types/system';
 import { NativeNarrationPlayer } from '@/services/tts/mediaOverlay/NativeNarrationPlayer';
+import { audioType } from '@/services/tts/mediaOverlay/MediaOverlayClient';
+import { getLocalMediaUrl } from './mediaProxy';
+import { mediaCrossOrigin } from './AudiobookClock';
 
 const PREVIEW_SECONDS = 15;
 
@@ -71,7 +74,7 @@ export class AudiobookPreviewPlayer {
           url = clip.url;
         } else if (this.#appService.appPlatform === 'tauri' && clip.path) {
           const path = await this.#appService.resolveFilePath(clip.path, clip.base ?? 'None');
-          url = convertFileSrc(path);
+          url = (await getLocalMediaUrl(path, audioType(path))) ?? convertFileSrc(path);
         } else {
           let file = clip.file;
           if (!file && clip.path) {
@@ -82,6 +85,7 @@ export class AudiobookPreviewPlayer {
           url = URL.createObjectURL(file);
           this.#objectUrl = url;
         }
+        audio.crossOrigin = mediaCrossOrigin(url);
         audio.src = url;
         audio.currentTime = clip.start;
         this.#endedListener = () => void this.stop();

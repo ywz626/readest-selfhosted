@@ -146,6 +146,7 @@ describe('services/constants', () => {
       expect(SUPPORTED_BOOK_EXTS).toContain('html');
       expect(SUPPORTED_BOOK_EXTS).toContain('mhtml');
       expect(SUPPORTED_BOOK_EXTS).toContain('mht');
+      expect(SUPPORTED_BOOK_EXTS).toContain('rbooks');
     });
 
     it('BOOK_ACCEPT_FORMATS is a comma-separated string of dotted extensions', () => {
@@ -259,6 +260,7 @@ describe('services/constants', () => {
         opds_catalog: true,
         abs_server: true,
         custom_translator: true,
+        custom_tts: true,
         settings: true,
       });
     });

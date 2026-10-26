@@ -30,7 +30,9 @@ import {
   formatLanguage,
   formatPublisher,
   formatTitle,
+  getBookPageCount,
   getContributorNames,
+  getSeriesIndex,
 } from '@/utils/book';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { saveSysSettings } from '@/helpers/settings';
@@ -329,15 +331,15 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                 </div>
                 {/*
                   The same total the footer bar counts against: foliate's
-                  SectionProgress derives it from the spine's byte sizes when the
-                  book is opened (reflowable), or from the spine length for fixed
-                  layout. Nothing computes it at import time, so it lands in
-                  book.progress ([current, total]) on the first open (#5516).
+                  SectionProgress derives it from the spine's byte sizes
+                  (reflowable) or the spine length (fixed layout). Import records
+                  it in book.pageCount (#6662); opening the book stores it in
+                  book.progress ([current, total], #5516).
                 */}
                 <div className='overflow-hidden pe-1 text-end sm:text-start'>
                   <span className='font-bold'>{_('Pages')}</span>
                   <p className='text-neutral-content text-sm'>
-                    {book.progress?.[1] || _('Unknown')}
+                    {getBookPageCount(book) || _('Unknown')}
                   </p>
                 </div>
                 {/*
@@ -457,7 +459,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                 <div className='overflow-hidden pe-1 text-end'>
                   <span className='font-bold'>{_('Series Index')}</span>
                   <p className='text-neutral-content text-sm'>
-                    {metadata?.seriesIndex || _('Unknown')}
+                    {getSeriesIndex(metadata?.seriesIndex) ?? _('Unknown')}
                   </p>
                 </div>
               </div>

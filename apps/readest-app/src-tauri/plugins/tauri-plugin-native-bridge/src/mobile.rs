@@ -433,6 +433,24 @@ impl<R: Runtime> NativeBridge<R> {
             .run_mobile_plugin("is_eink_refresh_supported", ())
             .map_err(Into::into)
     }
+
+    pub fn query_pen_capabilities(&self) -> crate::Result<QueryPenCapabilitiesResponse> {
+        self.0
+            .run_mobile_plugin("query_pen_capabilities", ())
+            .map_err(Into::into)
+    }
+
+    pub fn start_raw_drawing(&self, payload: StartRawDrawingRequest) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("start_raw_drawing", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn stop_raw_drawing(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("stop_raw_drawing", ())
+            .map_err(Into::into)
+    }
 }
 
 impl<R: Runtime> NativeBridge<R> {
@@ -566,6 +584,12 @@ impl<R: Runtime> NativeBridge<R> {
         base64::engine::general_purpose::STANDARD
             .decode(response.data)
             .map_err(|e| crate::Error::NativeBridgeError(format!("invalid base64 PNG: {e}")))
+    }
+
+    pub fn paper_curl(&self, payload: serde_json::Value) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin("paper_curl", payload)
+            .map_err(Into::into)
     }
 
     /// Native cover for the two-column page curl (#6106); see the Swift
