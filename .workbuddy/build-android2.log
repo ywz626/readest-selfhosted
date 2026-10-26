@@ -1,0 +1,422 @@
+$ dotenv -v KEEP_SOURCEMAPS=1 -e .env.tauri -e .env.tauri.local -e .env.server -- tauri android build -t aarch64 -- --features devtools && adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+        Info Using installed NDK: E:\SDK\Android-SDK\ndk\28.2.13676358
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `dotenv -v KEEP_SOURCEMAPS=1 -e .env.tauri -e .env.tauri.local -e .env.server -- next build --webpack && pnpm upload-sourcemaps`
+▲ Next.js 16.3.8 (webpack)
+- Environments: .env
+⚠ Specified "rewrites" will not automatically work with "output: export". See more info here: https://nextjs.org/docs/messages/export-no-custom-routes
+⚠ Specified "headers" will not automatically work with "output: export". See more info here: https://nextjs.org/docs/messages/export-no-custom-routes
+✓ Running next.config.mjs took 937ms
+Warning: Custom Cache-Control headers detected for the following routes:
+  - /_next/static/:path*
+
+Setting a custom Cache-Control header can break Next.js development behavior.
+- Experiments (use with caution):
+  · cpus: 2
+  · proxyClientMaxBodySize: 33554432
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 97s
+  Running TypeScript ...
+  Finished TypeScript in 34.6s ...
+  Collecting page data using 2 workers ...
+  Generating static pages using 2 workers (0/26) ...
+  Generating static pages using 2 workers (6/26) 
+  Generating static pages using 2 workers (12/26) 
+  Generating static pages using 2 workers (19/26) 
+✓ Generating static pages using 2 workers (26/26) in 8.8s
+  Finalizing page optimization ...
+  Collecting build traces ...
+⚠ rewrites, redirects, and headers are not applied when exporting your application, detected (rewrites, headers). See more info here: https://nextjs.org/docs/messages/export-no-custom-routes
+  Exporting using 2 workers (0/3) ...
+✓ Exporting using 2 workers (3/3) in 2.3s
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /auth
+├ ○ /auth/callback
+├ ○ /auth/error
+├ ○ /auth/recovery
+├ ○ /auth/update
+├ ○ /gdrive-callback
+├ ○ /hardcover/connect
+├ ○ /library
+├ ○ /link
+├ ○ /o
+├ ○ /offline
+├ ○ /onedrive-callback
+├ ○ /opds
+├ ○ /player
+├ ○ /reader
+├ ○ /s
+├ ○ /send
+├ ○ /stats
+├ ○ /updater
+├ ○ /user
+└ ○ /user/subscription/success
+
+Route (pages)
+┌   /_app
+└ ○ /reader/[ids] (747 ms)
+
+○  (Static)  prerendered as static content
+
+$ node scripts/upload-sourcemaps.mjs
+Sentry: SENTRY_AUTH_TOKEN unset, skipping source map upload.
+Sentry: KEEP_SOURCEMAPS=1, keeping the .js.map files in the app bundle.
+[1m[92m   Compiling[0m Readest v0.2.2 (E:\project\readest-selfhosted\apps\readest-app\src-tauri)
+[1m[93mwarning[0m[1m[97m: multiple methods are never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:80:8
+    [1m[96m|[0m
+[1m[96m 79[0m [1m[96m|[0m impl ClipOptions {
+    [1m[96m|[0m [1m[96m----------------[0m [1m[96mmethods in this implementation[0m
+[1m[96m 80[0m [1m[96m|[0m     fn window_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 85[0m [1m[96m|[0m     fn overlay_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 88[0m [1m[96m|[0m     fn loading_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 91[0m [1m[96m|[0m     fn capturing_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 96[0m [1m[96m|[0m     fn saved_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 99[0m [1m[96m|[0m     fn background(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m102[0m [1m[96m|[0m     fn foreground(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m[1m[97m: function `parse_hex_color` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:110:4
+    [1m[96m|[0m
+[1m[96m110[0m [1m[96m|[0m fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `escape_html` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:124:4
+    [1m[96m|[0m
+[1m[96m124[0m [1m[96m|[0m fn escape_html(s: &str) -> String {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `parse_stamp` is never used[0m
+ [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:8:4
+  [1m[96m|[0m
+[1m[96m8[0m [1m[96m|[0m fn parse_stamp(v: &Version) -> Option<u64> {
+  [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `is_update_newer` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:18:8
+   [1m[96m|[0m
+[1m[96m18[0m [1m[96m|[0m pub fn is_update_newer(candidate: &str, current: &str) -> bool {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: struct `WebBrowserDownload` is never constructed[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:27:12
+   [1m[96m|[0m
+[1m[96m27[0m [1m[96m|[0m pub struct WebBrowserDownload {
+   [1m[96m|[0m            [1m[93m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: constant `SENTINEL_HOST` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:54:11
+   [1m[96m|[0m
+[1m[96m54[0m [1m[96m|[0m pub const SENTINEL_HOST: &str = "readest-browser.invalid";
+   [1m[96m|[0m           [1m[93m^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: enum `SentinelAction` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:57:10
+   [1m[96m|[0m
+[1m[96m57[0m [1m[96m|[0m pub enum SentinelAction {
+   [1m[96m|[0m          [1m[93m^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `download_filename` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:97:8
+   [1m[96m|[0m
+[1m[96m97[0m [1m[96m|[0m pub fn download_filename(suggested: Option<&str>, url: &Url) -> String {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `sentinel_action` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:213:8
+    [1m[96m|[0m
+[1m[96m213[0m [1m[96m|[0m pub fn sentinel_action(url: &Url) -> Option<SentinelAction> {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `status_eval` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:229:8
+    [1m[96m|[0m
+[1m[96m229[0m [1m[96m|[0m pub fn status_eval(status: &WebBrowserStatus) -> String {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m: `Readest` (lib) generated 11 warnings
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 9m 34s
+        Info symlinking lib "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" in jniLibs dir "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/arm64-v8a"
+        Info "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libdl.so"
+        Info "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "liblog.so"
+        Info "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libandroid.so"
+        Info "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libm.so"
+        Info "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libc.so"
+        Info symlink at "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/arm64-v8a\\libreadestlib.so" points to "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so"
+        Info symlink at "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/armeabi-v7a\\libreadestlib.so" points to "E:\\project\\readest-selfhosted\\target\\armv7-linux-androideabi\\release\\libreadestlib.so"
+        Info symlink at "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/x86\\libreadestlib.so" points to "E:\\project\\readest-selfhosted\\target\\i686-linux-android\\release\\libreadestlib.so"
+        Info symlink at "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/x86_64\\libreadestlib.so" points to "E:\\project\\readest-selfhosted\\target\\x86_64-linux-android\\release\\libreadestlib.so"
+$ node scripts/tauri.mjs "android" "android-studio-script" "--release" "--target" "aarch64"
+        Info connection; remote_addr=127.0.0.1:1244 conn_id=0
+[1m[32m        Info[0m Using installed NDK: E:\SDK\Android-SDK\ndk\28.2.13676358
+[1m[92m   Compiling[0m Readest v0.2.2 (E:\project\readest-selfhosted\apps\readest-app\src-tauri)
+[1m[93mwarning[0m[1m[97m: multiple methods are never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:80:8
+    [1m[96m|[0m
+[1m[96m 79[0m [1m[96m|[0m impl ClipOptions {
+    [1m[96m|[0m [1m[96m----------------[0m [1m[96mmethods in this implementation[0m
+[1m[96m 80[0m [1m[96m|[0m     fn window_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 85[0m [1m[96m|[0m     fn overlay_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 88[0m [1m[96m|[0m     fn loading_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 91[0m [1m[96m|[0m     fn capturing_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 96[0m [1m[96m|[0m     fn saved_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 99[0m [1m[96m|[0m     fn background(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m102[0m [1m[96m|[0m     fn foreground(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m[1m[97m: function `parse_hex_color` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:110:4
+    [1m[96m|[0m
+[1m[96m110[0m [1m[96m|[0m fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `escape_html` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:124:4
+    [1m[96m|[0m
+[1m[96m124[0m [1m[96m|[0m fn escape_html(s: &str) -> String {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `parse_stamp` is never used[0m
+ [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:8:4
+  [1m[96m|[0m
+[1m[96m8[0m [1m[96m|[0m fn parse_stamp(v: &Version) -> Option<u64> {
+  [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `is_update_newer` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:18:8
+   [1m[96m|[0m
+[1m[96m18[0m [1m[96m|[0m pub fn is_update_newer(candidate: &str, current: &str) -> bool {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: struct `WebBrowserDownload` is never constructed[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:27:12
+   [1m[96m|[0m
+[1m[96m27[0m [1m[96m|[0m pub struct WebBrowserDownload {
+   [1m[96m|[0m            [1m[93m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: constant `SENTINEL_HOST` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:54:11
+   [1m[96m|[0m
+[1m[96m54[0m [1m[96m|[0m pub const SENTINEL_HOST: &str = "readest-browser.invalid";
+   [1m[96m|[0m           [1m[93m^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: enum `SentinelAction` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:57:10
+   [1m[96m|[0m
+[1m[96m57[0m [1m[96m|[0m pub enum SentinelAction {
+   [1m[96m|[0m          [1m[93m^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `download_filename` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:97:8
+   [1m[96m|[0m
+[1m[96m97[0m [1m[96m|[0m pub fn download_filename(suggested: Option<&str>, url: &Url) -> String {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `sentinel_action` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:213:8
+    [1m[96m|[0m
+[1m[96m213[0m [1m[96m|[0m pub fn sentinel_action(url: &Url) -> Option<SentinelAction> {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `status_eval` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:229:8
+    [1m[96m|[0m
+[1m[96m229[0m [1m[96m|[0m pub fn status_eval(status: &WebBrowserStatus) -> String {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m: `Readest` (lib) generated 11 warnings
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 7m 51s
+[1m[32m        Info[0m symlinking lib "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" in jniLibs dir "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/arm64-v8a"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libdl.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "liblog.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libandroid.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libm.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libc.so"
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\arm64-v8a\libreadestlib.so because unable to locate the objcopy executable for the arm64-v8a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\arm64-v8a\libsentry-android.so because unable to locate the objcopy executable for the arm64-v8a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\arm64-v8a\libsentry.so because unable to locate the objcopy executable for the arm64-v8a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\arm64-v8a\libturso_sdk_kit.so because unable to locate the objcopy executable for the arm64-v8a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\armeabi-v7a\libreadestlib.so because unable to locate the objcopy executable for the armeabi-v7a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\armeabi-v7a\libsentry-android.so because unable to locate the objcopy executable for the armeabi-v7a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\armeabi-v7a\libsentry.so because unable to locate the objcopy executable for the armeabi-v7a ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86\libreadestlib.so because unable to locate the objcopy executable for the x86 ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86\libsentry-android.so because unable to locate the objcopy executable for the x86 ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86\libsentry.so because unable to locate the objcopy executable for the x86 ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86_64\libreadestlib.so because unable to locate the objcopy executable for the x86_64 ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86_64\libsentry-android.so because unable to locate the objcopy executable for the x86_64 ABI.
+Unable to extract native debug metadata from E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen\android\app\build\intermediates\merged_native_libs\universalRelease\mergeUniversalReleaseNativeLibs\out\lib\x86_64\libsentry.so because unable to locate the objcopy executable for the x86_64 ABI.
+w: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/app/src/main/java/com/ywz626/readest/sh/MainActivity.kt:273:33 'constructor TaskDescription(String!, Bitmap!, Int)' is deprecated. Deprecated in Java
+w: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/app/src/main/java/com/ywz626/readest/sh/MainActivity.kt:317:18 This declaration overrides deprecated member but not marked as deprecated itself. Please add @Deprecated annotation or suppress. See https://youtrack.jetbrains.com/issue/KT-47902 for details
+w: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/app/src/main/java/com/ywz626/readest/sh/MainActivity.kt:329:15 Unnecessary safe call on a non-null receiver of type Intent
+w: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/app/src/main/java/com/ywz626/readest/sh/MainActivity.kt:380:26 'getParcelableExtra(String!): T?' is deprecated. Deprecated in Java
+w: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/app/src/main/java/com/ywz626/readest/sh/MainActivity.kt:392:27 'getParcelableArrayListExtra(String!): ArrayList<T!>?' is deprecated. Deprecated in Java
+Java compiler version 21 has deprecated support for compiling with source/target version 8.
+Try one of the following options:
+    1. [Recommended] Use Java toolchain with a lower language version
+    2. Set a higher source/target version
+    3. Use a lower version of the JDK running the build (if you're not using Java toolchain)
+For more details on how to configure these settings, see https://developer.android.com/build/jdks.
+To suppress this warning, set android.javaCompile.suppressSourceTargetDeprecationWarning=true in gradle.properties.
+警告: [options] 源值 8 已过时，将在未来发行版中删除
+警告: [options] 目标值 8 已过时，将在未来发行版中删除
+警告: [options] 要隐藏有关已过时选项的警告, 请使用 -Xlint:-options。
+3 个警告
+
+[Incubating] Problems report is available at: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+$ node scripts/tauri.mjs "android" "android-studio-script" "--release" "--target" "aarch64"
+        Info connection; remote_addr=127.0.0.1:13899 conn_id=1
+[1m[32m        Info[0m Using installed NDK: E:\SDK\Android-SDK\ndk\28.2.13676358
+[1m[92m   Compiling[0m Readest v0.2.2 (E:\project\readest-selfhosted\apps\readest-app\src-tauri)
+[1m[93mwarning[0m[1m[97m: multiple methods are never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:80:8
+    [1m[96m|[0m
+[1m[96m 79[0m [1m[96m|[0m impl ClipOptions {
+    [1m[96m|[0m [1m[96m----------------[0m [1m[96mmethods in this implementation[0m
+[1m[96m 80[0m [1m[96m|[0m     fn window_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 85[0m [1m[96m|[0m     fn overlay_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 88[0m [1m[96m|[0m     fn loading_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 91[0m [1m[96m|[0m     fn capturing_status(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 96[0m [1m[96m|[0m     fn saved_title(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m 99[0m [1m[96m|[0m     fn background(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+[1m[96m...[0m
+[1m[96m102[0m [1m[96m|[0m     fn foreground(&self) -> &str {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m[1m[97m: function `parse_hex_color` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:110:4
+    [1m[96m|[0m
+[1m[96m110[0m [1m[96m|[0m fn parse_hex_color(s: &str) -> Option<(u8, u8, u8)> {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `escape_html` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\clip_url.rs:124:4
+    [1m[96m|[0m
+[1m[96m124[0m [1m[96m|[0m fn escape_html(s: &str) -> String {
+    [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `parse_stamp` is never used[0m
+ [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:8:4
+  [1m[96m|[0m
+[1m[96m8[0m [1m[96m|[0m fn parse_stamp(v: &Version) -> Option<u64> {
+  [1m[96m|[0m    [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `is_update_newer` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\nightly_update.rs:18:8
+   [1m[96m|[0m
+[1m[96m18[0m [1m[96m|[0m pub fn is_update_newer(candidate: &str, current: &str) -> bool {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: struct `WebBrowserDownload` is never constructed[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:27:12
+   [1m[96m|[0m
+[1m[96m27[0m [1m[96m|[0m pub struct WebBrowserDownload {
+   [1m[96m|[0m            [1m[93m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: constant `SENTINEL_HOST` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:54:11
+   [1m[96m|[0m
+[1m[96m54[0m [1m[96m|[0m pub const SENTINEL_HOST: &str = "readest-browser.invalid";
+   [1m[96m|[0m           [1m[93m^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: enum `SentinelAction` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:57:10
+   [1m[96m|[0m
+[1m[96m57[0m [1m[96m|[0m pub enum SentinelAction {
+   [1m[96m|[0m          [1m[93m^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `download_filename` is never used[0m
+  [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:97:8
+   [1m[96m|[0m
+[1m[96m97[0m [1m[96m|[0m pub fn download_filename(suggested: Option<&str>, url: &Url) -> String {
+   [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `sentinel_action` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:213:8
+    [1m[96m|[0m
+[1m[96m213[0m [1m[96m|[0m pub fn sentinel_action(url: &Url) -> Option<SentinelAction> {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m[1m[97m: function `status_eval` is never used[0m
+   [1m[96m--> [0mapps\readest-app\src-tauri\src\web_browser.rs:229:8
+    [1m[96m|[0m
+[1m[96m229[0m [1m[96m|[0m pub fn status_eval(status: &WebBrowserStatus) -> String {
+    [1m[96m|[0m        [1m[93m^^^^^^^^^^^[0m
+
+[1m[93mwarning[0m: `Readest` (lib) generated 11 warnings
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 7m 37s
+[1m[32m        Info[0m symlinking lib "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" in jniLibs dir "E:\\project\\readest-selfhosted\\apps\\readest-app\\src-tauri\\gen/android\\app/src/main/jniLibs/arm64-v8a"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libdl.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "liblog.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libandroid.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libm.so"
+[1m[32m        Info[0m "E:\\project\\readest-selfhosted\\target\\aarch64-linux-android\\release\\libreadestlib.so" requires shared lib "libc.so"
+
+[Incubating] Problems report is available at: file:///E:/project/readest-selfhosted/apps/readest-app/src-tauri/gen/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+    Finished 1 APK at:
+        E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen/android\app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+
+    Finished 1 AAB at:
+        E:\project\readest-selfhosted\apps\readest-app\src-tauri\gen/android\app/build/outputs/bundle/universalRelease/app-universal-release.aab
+
+'adb' �����ڲ����ⲿ���Ҳ���ǿ����еĳ���
+���������ļ���
+[ELIFECYCLE] Command failed with exit code 1.

@@ -345,59 +345,59 @@ describe('TTSMiniPlayer', () => {
     { initialTab: '', cellTop: 0 },
     { initialTab: 'progress', cellTop: 0 },
     { initialTab: 'progress', cellTop: 100 },
-  ])('stacks above sliding chrome ($initialTab, cell top $cellTop), then follows folding and resizing', ({
-    initialTab,
-    cellTop,
-  }) => {
-    readerState.bottomBarTab = initialTab;
-    readerState.hoveredBookKey = 'b1';
-    const cell = document.createElement('div');
-    cell.id = 'gridcell-b1';
-    const footer = document.createElement('div');
-    footer.className = 'footer-bar';
-    footer.style.translate = '0 100%';
-    const panel = document.createElement('div');
-    panel.className = 'footerbar-progress-mobile';
-    panel.style.translate = '0 100%';
-    footer.appendChild(panel);
-    cell.appendChild(footer);
-    document.body.appendChild(cell);
-    cell.getBoundingClientRect = () =>
-      ({ bottom: cellTop + 800, top: cellTop, height: 800 }) as DOMRect;
-    Object.defineProperty(footer, 'offsetParent', { value: cellTop ? cell : null });
-    // Fixed footer: offsetTop ignores its own slide. Its 84px height includes
-    // the Android system navigation inset rather than the assumed 64px.
-    Object.defineProperty(footer, 'offsetTop', { value: 716 });
-    footer.getBoundingClientRect = () => ({ top: 800, height: 84 }) as DOMRect;
-    let panelHeight = 200;
-    Object.defineProperty(panel, 'offsetTop', { get: () => -panelHeight });
-    panel.getBoundingClientRect = () => ({ top: 800, height: panelHeight }) as DOMRect;
-    try {
-      const { rerender, unmount } = render(<TTSMiniPlayer {...makeProps()} />);
-      expect(screen.getByRole('status').style.bottom).toBe(initialTab ? '292px' : '92px');
-      readerState.bottomBarTab = 'progress';
-      rerender(<TTSMiniPlayer {...makeProps()} />);
-      expect(screen.getByRole('status').style.bottom).toBe('292px');
+  ])(
+    'stacks above sliding chrome ($initialTab, cell top $cellTop), then follows folding and resizing',
+    ({ initialTab, cellTop }) => {
+      readerState.bottomBarTab = initialTab;
+      readerState.hoveredBookKey = 'b1';
+      const cell = document.createElement('div');
+      cell.id = 'gridcell-b1';
+      const footer = document.createElement('div');
+      footer.className = 'footer-bar';
+      footer.style.translate = '0 100%';
+      const panel = document.createElement('div');
+      panel.className = 'footerbar-progress-mobile';
+      panel.style.translate = '0 100%';
+      footer.appendChild(panel);
+      cell.appendChild(footer);
+      document.body.appendChild(cell);
+      cell.getBoundingClientRect = () =>
+        ({ bottom: cellTop + 800, top: cellTop, height: 800 }) as DOMRect;
+      Object.defineProperty(footer, 'offsetParent', { value: cellTop ? cell : null });
+      // Fixed footer: offsetTop ignores its own slide. Its 84px height includes
+      // the Android system navigation inset rather than the assumed 64px.
+      Object.defineProperty(footer, 'offsetTop', { value: 716 });
+      footer.getBoundingClientRect = () => ({ top: 800, height: 84 }) as DOMRect;
+      let panelHeight = 200;
+      Object.defineProperty(panel, 'offsetTop', { get: () => -panelHeight });
+      panel.getBoundingClientRect = () => ({ top: 800, height: panelHeight }) as DOMRect;
+      try {
+        const { rerender, unmount } = render(<TTSMiniPlayer {...makeProps()} />);
+        expect(screen.getByRole('status').style.bottom).toBe(initialTab ? '292px' : '92px');
+        readerState.bottomBarTab = 'progress';
+        rerender(<TTSMiniPlayer {...makeProps()} />);
+        expect(screen.getByRole('status').style.bottom).toBe('292px');
 
-      // Content/font-size changes can resize the open panel without a tab change.
-      panelHeight = 240;
-      act(() => resizeCallback([], {} as ResizeObserver));
-      expect(screen.getByRole('status').style.bottom).toBe('332px');
+        // Content/font-size changes can resize the open panel without a tab change.
+        panelHeight = 240;
+        act(() => resizeCallback([], {} as ResizeObserver));
+        expect(screen.getByRole('status').style.bottom).toBe('332px');
 
-      readerState.bottomBarTab = '';
-      rerender(<TTSMiniPlayer {...makeProps()} />);
-      expect(screen.getByRole('status').style.bottom).toBe('92px');
-      readerState.hoveredBookKey = '';
-      rerender(<TTSMiniPlayer {...makeProps()} />);
-      expect(screen.getByRole('status').style.bottom).toBe(
-        `${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`,
-      );
-      unmount();
-      expect(disconnectObserver).toHaveBeenCalled();
-    } finally {
-      cell.remove();
-    }
-  });
+        readerState.bottomBarTab = '';
+        rerender(<TTSMiniPlayer {...makeProps()} />);
+        expect(screen.getByRole('status').style.bottom).toBe('92px');
+        readerState.hoveredBookKey = '';
+        rerender(<TTSMiniPlayer {...makeProps()} />);
+        expect(screen.getByRole('status').style.bottom).toBe(
+          `${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`,
+        );
+        unmount();
+        expect(disconnectObserver).toHaveBeenCalled();
+      } finally {
+        cell.remove();
+      }
+    },
+  );
 
   test('rests above the footer info band once the bar is dismissed', () => {
     render(<TTSMiniPlayer {...makeProps()} />);

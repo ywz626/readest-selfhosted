@@ -30,35 +30,32 @@ afterEach(() => {
 });
 
 describe('Readest route transitions', () => {
-  it.each([
-    '/opds?catalog=two',
-    '/opds?catalog=one#section',
-    '/opds?catalog=one',
-    '/library',
-  ])('leaves native history navigation to Next.js: %s', (url) => {
-    const onPopState = vi.fn();
-    window.addEventListener('popstate', onPopState);
-    render(<ViewTransitions>Catalog</ViewTransitions>);
-    act(() => {
-      window.history.replaceState({}, '', url);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    });
-    expect(startViewTransition).not.toHaveBeenCalled();
-    expect(onPopState).toHaveBeenCalledOnce();
-    window.removeEventListener('popstate', onPopState);
-  });
+  it.each(['/opds?catalog=two', '/opds?catalog=one#section', '/opds?catalog=one', '/library'])(
+    'leaves native history navigation to Next.js: %s',
+    (url) => {
+      const onPopState = vi.fn();
+      window.addEventListener('popstate', onPopState);
+      render(<ViewTransitions>Catalog</ViewTransitions>);
+      act(() => {
+        window.history.replaceState({}, '', url);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      expect(startViewTransition).not.toHaveBeenCalled();
+      expect(onPopState).toHaveBeenCalledOnce();
+      window.removeEventListener('popstate', onPopState);
+    },
+  );
 
-  it.each([
-    '/library',
-    '/opds?catalog=two',
-    '/opds?catalog=one',
-  ])('completes explicit navigation after React commits: %s', async (url) => {
-    const { result } = renderHook(() => useTransitionRouter(), { wrapper: ViewTransitions });
-    await act(async () => result.current.push(url, { scroll: false }));
-    expect(router.push).toHaveBeenCalledWith(url, { scroll: false });
-    expect(startViewTransition).toHaveBeenCalledOnce();
-    await expect(updates[0]).resolves.toBeUndefined();
-  });
+  it.each(['/library', '/opds?catalog=two', '/opds?catalog=one'])(
+    'completes explicit navigation after React commits: %s',
+    async (url) => {
+      const { result } = renderHook(() => useTransitionRouter(), { wrapper: ViewTransitions });
+      await act(async () => result.current.push(url, { scroll: false }));
+      expect(router.push).toHaveBeenCalledWith(url, { scroll: false });
+      expect(startViewTransition).toHaveBeenCalledOnce();
+      await expect(updates[0]).resolves.toBeUndefined();
+    },
+  );
 
   it('settles overlapping navigations', async () => {
     const { result } = renderHook(() => useTransitionRouter(), { wrapper: ViewTransitions });

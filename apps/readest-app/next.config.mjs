@@ -43,6 +43,10 @@ const nextConfig = {
   },
   devIndicators: false,
   experimental: {
+    // TEMPORARY (local build workaround, must be reverted): cap the number of
+    // build/export workers so the export phase does not open the same output
+    // file from several workers at once on Windows (EPERM on out/404.html).
+    cpus: 2,
     // Dev caching is on by default since Next 16.1. We deliberately turn OFF
     // Turbopack's build cache, which Next 16.4 enables by default: a build
     // interrupted mid-compile leaves a partial cache that the next build

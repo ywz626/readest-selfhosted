@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import React, { useEffect, useRef } from 'react';
 import { FaSearch, FaTimes } from 'react-icons/fa';
-import { MdFilterList } from 'react-icons/md';
+import { MdFilterList, MdOutlineViewAgenda, MdOutlineViewList } from 'react-icons/md';
 
 import { useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
@@ -182,6 +182,8 @@ interface AnnotationsToolbarProps {
   styles: HighlightStyle[];
   excludedColors: HighlightColor[];
   excludedStyles: HighlightStyle[];
+  compact: boolean;
+  onToggleCompact: () => void;
   onFilterKindChange: (kind: AnnotationFilterKind) => void;
   onSearchInputChange: (value: string) => void;
   onCloseSearch: () => void;
@@ -201,6 +203,8 @@ const AnnotationsToolbar: React.FC<AnnotationsToolbarProps> = ({
   styles,
   excludedColors,
   excludedStyles,
+  compact,
+  onToggleCompact,
   onFilterKindChange,
   onSearchInputChange,
   onCloseSearch,
@@ -270,6 +274,18 @@ const AnnotationsToolbar: React.FC<AnnotationsToolbarProps> = ({
           </button>
         </div>
       )}
+      <div className='flex h-8 items-start pt-1'>
+        <button
+          type='button'
+          onClick={onToggleCompact}
+          aria-pressed={compact}
+          aria-label={compact ? _('Full View') : _('Compact View')}
+          title={compact ? _('Full View') : _('Compact View')}
+          className={clsx('btn btn-ghost btn-circle h-6 min-h-6 w-6 p-0', compact && 'bg-base-300')}
+        >
+          {compact ? <MdOutlineViewAgenda /> : <MdOutlineViewList />}
+        </button>
+      </div>
       <Dropdown
         label={_('Filter Annotations')}
         showTooltip={false}

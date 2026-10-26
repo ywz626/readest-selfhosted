@@ -609,26 +609,26 @@ it('resolves chapter images against the final website URL instead of the app ori
   expect(html).toContain('src="https://members.example.org/novel/figure.png"');
 });
 
-it.each([
-  false,
-  true,
-])('does not fetch or render private chapter URLs (signed in: %s)', async (renderChapters) => {
-  const fetchPage = vi.fn(makeFetchPage());
-  const renderPage = vi.fn(async (url: string) => ({ html: chapterPage(1), finalUrl: url }));
-  const chapters = [
-    'http://127.0.0.1/private',
-    'http://localhost./private',
-    'http://[::ffff:7f00:1]/private',
-  ].map((url) => ({ title: 'Chapter 1', url }));
-  const book = await downloadNovel(toc({ chapters }), TOC_URL, {
-    fetchPage,
-    renderPage,
-    renderChapters,
-  });
-  expect(book.failures).toBe(chapters.length);
-  expect(fetchPage).not.toHaveBeenCalled();
-  expect(renderPage).not.toHaveBeenCalled();
-});
+it.each([false, true])(
+  'does not fetch or render private chapter URLs (signed in: %s)',
+  async (renderChapters) => {
+    const fetchPage = vi.fn(makeFetchPage());
+    const renderPage = vi.fn(async (url: string) => ({ html: chapterPage(1), finalUrl: url }));
+    const chapters = [
+      'http://127.0.0.1/private',
+      'http://localhost./private',
+      'http://[::ffff:7f00:1]/private',
+    ].map((url) => ({ title: 'Chapter 1', url }));
+    const book = await downloadNovel(toc({ chapters }), TOC_URL, {
+      fetchPage,
+      renderPage,
+      renderChapters,
+    });
+    expect(book.failures).toBe(chapters.length);
+    expect(fetchPage).not.toHaveBeenCalled();
+    expect(renderPage).not.toHaveBeenCalled();
+  },
+);
 
 it('rejects a private table of contents before fetching', async () => {
   const fetchPage = vi.fn(makeFetchPage());

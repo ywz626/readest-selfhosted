@@ -175,6 +175,53 @@ describe('BooknoteItem', () => {
     expect(mocks.setNotebookVisible).not.toHaveBeenCalled();
   });
 
+  it('compact mode renders a one-line note preview instead of the full note', () => {
+    const item = makeItem({
+      note: '## 被动模式（PASV）\n\n**第一步**：建立控制连接\n\n| a | b |\n|---|---|\n| 1 | 2 |',
+    });
+    render(
+      <BooknoteTimeProvider>
+        <ul>
+          <BooknoteItem bookKey='hash1-primary' item={item} compact />
+        </ul>
+      </BooknoteTimeProvider>,
+    );
+
+    // Source text stays the primary line…
+    expect(screen.getByText('highlighted words')).toBeTruthy();
+    // …and the preview is the first content line with markdown markers stripped.
+    expect(screen.getByText('被动模式（PASV）')).toBeTruthy();
+    // The rest of the note is not rendered in compact mode.
+    expect(screen.queryByText(/建立控制连接/)).toBeNull();
+  });
+
+  it('compact mode: row click expands the full note, source-text click navigates', () => {
+    const item = makeItem({ note: '## 标题\n\n完整内容在这里' });
+    render(
+      <BooknoteTimeProvider>
+        <ul>
+          <BooknoteItem bookKey='hash1-primary' item={item} compact />
+        </ul>
+      </BooknoteTimeProvider>,
+    );
+    const dispatch = vi.spyOn(eventDispatcher, 'dispatch');
+    const card = screen.getByText('highlighted words').closest('li')!;
+
+    // Row click expands/collapses instead of navigating.
+    expect(card.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(card);
+    expect(dispatch).not.toHaveBeenCalledWith('navigate', expect.anything());
+    expect(card.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText(/完整内容在这里/)).toBeTruthy();
+
+    // Source-text click jumps to the location.
+    fireEvent.click(screen.getByText('highlighted words'));
+    expect(dispatch).toHaveBeenCalledWith(
+      'navigate',
+      expect.objectContaining({ bookKey: 'hash1-primary' }),
+    );
+  });
+
   it('shows Add Note on a bare highlight and saves a new note inline', async () => {
     const item = makeItem();
     mocks.state.booknotes = [item];

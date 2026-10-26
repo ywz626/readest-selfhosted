@@ -340,6 +340,7 @@ export const DEFAULT_READSETTINGS: ReadSettings = {
   notebookWidth: '25%',
   isNotebookPinned: false,
   notebookActiveTab: 'notes',
+  booknoteCompactView: false,
   translationProvider: 'deepl',
   translateTargetLang: 'EN',
   wordLensAutoDownload: true,

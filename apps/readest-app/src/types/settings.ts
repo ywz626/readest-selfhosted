@@ -82,6 +82,8 @@ export interface ReadSettings {
   notebookWidth: string;
   isNotebookPinned: boolean;
   notebookActiveTab: NotebookTab;
+  /** Annotations tab: render each note as a compact two-line index row. */
+  booknoteCompactView: boolean;
   translationProvider: string;
   translateTargetLang: string;
   /**

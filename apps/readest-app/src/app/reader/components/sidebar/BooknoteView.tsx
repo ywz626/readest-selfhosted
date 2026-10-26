@@ -6,9 +6,12 @@ import * as CFI from 'foliate-js/epubcfi.js';
 import { PiMagnifyingGlass, PiNotePencil } from 'react-icons/pi';
 import { RiBookmark3Line, RiBookmarkLine } from 'react-icons/ri';
 
+import { useEnv } from '@/context/EnvContext';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useSidebarStore } from '@/store/sidebarStore';
+import { saveSysSettings } from '@/helpers/settings';
 import { findTocItemBS } from '@/services/nav';
 import { findNearestCfi } from '@/utils/cfi';
 import { TOCItem } from '@/libs/document';
@@ -49,7 +52,9 @@ const BooknoteView: React.FC<{
   toc: TOCItem[];
 }> = ({ type, bookKey, toc }) => {
   const _ = useTranslation();
+  const { envConfig } = useEnv();
   const { getConfig } = useBookDataStore();
+  const { settings } = useSettingsStore();
   const { getProgress } = useReaderStore();
   const { setActiveBooknoteType, setBooknoteResults, isSearchBarVisible, setSearchBarVisible } =
     useSidebarStore();
@@ -62,6 +67,18 @@ const BooknoteView: React.FC<{
   const [query, setQuery] = useState('');
   const [excludedColors, setExcludedColors] = useState<HighlightColor[]>([]);
   const [excludedStyles, setExcludedStyles] = useState<HighlightStyle[]>([]);
+
+  // Compact index mode: one line of source text + one line of note preview
+  // per row, so long notes (e.g. pasted AI replies) don't fill the sidebar.
+  // Device-local like isSideBarPinned — deliberately not in SETTINGS_WHITELIST.
+  const compactView = settings.globalReadSettings.booknoteCompactView;
+  const handleToggleCompactView = useCallback(() => {
+    const globalReadSettings = settings.globalReadSettings;
+    saveSysSettings(envConfig, 'globalReadSettings', {
+      ...globalReadSettings,
+      booknoteCompactView: !globalReadSettings.booknoteCompactView,
+    });
+  }, [envConfig, settings]);
 
   // Debounce the query the same 300 ms the Notebook SearchBar uses, so
   // typing doesn't regroup/re-sort hundreds of notes per keystroke.
@@ -364,11 +381,12 @@ const BooknoteView: React.FC<{
             isNearest={row.item.cfi === nearestCfi}
             onClick={handleBrowseBookNotes}
             inlineNoteEditing={type === 'annotation'}
+            compact={compactView}
           />
         </ul>
       );
     },
-    [flatItems, bookKey, nearestCfi, handleBrowseBookNotes, type],
+    [flatItems, bookKey, nearestCfi, handleBrowseBookNotes, type, compactView],
   );
 
   // Always mount the listHostRef host so the height-measurement effect (and
@@ -399,6 +417,8 @@ const BooknoteView: React.FC<{
           styles={facets.styles}
           excludedColors={excludedColors}
           excludedStyles={excludedStyles}
+          compact={compactView}
+          onToggleCompact={handleToggleCompactView}
           onFilterKindChange={setFilterKind}
           onSearchInputChange={setSearchInput}
           onToggleColor={toggleColor}

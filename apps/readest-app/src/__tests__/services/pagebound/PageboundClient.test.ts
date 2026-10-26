@@ -327,7 +327,8 @@ describe('PageboundClient', () => {
   test('renews a stale API token before syncing and reports the new session', async () => {
     const valid = 'api-2';
     const authed = (init?: RequestInit) =>
-      (init?.headers as Record<string, string>)['Authorization'] === `Bearer ${valid}`;
+      (init?.headers as Record<string, string> | undefined)?.['Authorization'] ===
+      `Bearer ${valid}`;
     route(
       on('GET', '/auth/get_authed_user', (init) =>
         authed(init) ? json({ user: { id: 1 } }) : json({}, 500),

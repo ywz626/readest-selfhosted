@@ -46,6 +46,8 @@ const defaultProps = {
   styles: [] as HighlightStyle[],
   excludedColors: [] as HighlightColor[],
   excludedStyles: [] as HighlightStyle[],
+  compact: false,
+  onToggleCompact: vi.fn(),
   onFilterKindChange: vi.fn(),
   onSearchInputChange: vi.fn(),
   onCloseSearch: vi.fn(),
@@ -164,5 +166,18 @@ describe('AnnotationsToolbar', () => {
     const { container } = render(<AnnotationsToolbar {...defaultProps} />);
     const filterPanel = container.querySelector('.annotations-filter-panel');
     expect(filterPanel?.className).toContain('injected-menu-class');
+  });
+
+  it('toggles compact view and reflects the state with aria-pressed', () => {
+    const { rerender } = render(<AnnotationsToolbar {...defaultProps} />);
+    const toggle = screen.getByRole('button', { name: 'Compact View' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(defaultProps.onToggleCompact).toHaveBeenCalledTimes(1);
+
+    rerender(<AnnotationsToolbar {...defaultProps} compact />);
+    expect(screen.getByRole('button', { name: 'Full View' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
   });
 });

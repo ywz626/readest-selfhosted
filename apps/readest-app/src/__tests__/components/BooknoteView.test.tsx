@@ -47,6 +47,20 @@ vi.mock('@/store/sidebarStore', () => ({
   }),
 }));
 
+vi.mock('@/context/EnvContext', () => ({
+  useEnv: () => ({ envConfig: {}, appService: null }),
+}));
+
+vi.mock('@/store/settingsStore', () => ({
+  useSettingsStore: () => ({
+    settings: { globalReadSettings: { booknoteCompactView: false } },
+  }),
+}));
+
+vi.mock('@/helpers/settings', () => ({
+  saveSysSettings: vi.fn(),
+}));
+
 // Derive a per-chapter TOC group from the spine step of each note's CFI so the
 // flattened list is [header, note, header, note, ...] sorted by chapter.
 vi.mock('@/services/nav', () => ({
