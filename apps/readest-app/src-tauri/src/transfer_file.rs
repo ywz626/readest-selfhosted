@@ -11,7 +11,7 @@ use serde::{ser::Serializer, Serialize};
 use tauri::{command, ipc::Channel, AppHandle, Manager};
 use tauri_plugin_fs::FsExt;
 use tokio::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{AsyncWriteExt, BufWriter},
 };
 use tokio_util::codec::{BytesCodec, FramedRead};
@@ -20,9 +20,65 @@ use read_progress_stream::ReadProgressStream;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// Size of a single download part.
+///
+/// The part size is also the progress-reporting granularity: progress used
+/// to be emitted only when a whole part had been received *and* written to
+/// disk, so the panel showed a frozen "0 B/s" until the first part landed —
+/// and with 1 MiB parts that first part took long enough on a lossy or
+/// high-latency link to look like a stall. Bigger parts cut the request
+/// count (and with it the per-request round trip, server-side file open and
+/// TCP slow start) by the same factor, and the downloader now reports
+/// progress per network chunk instead of per part, so the reported speed is
+/// live either way.
+const PART_SIZE: u64 = 4 * 1024 * 1024;
+
+/// How many parts of one file are fetched concurrently.
+const PART_CONCURRENCY: usize = 6;
+
+/// Shared HTTP client for the given trust mode.
+///
+/// A fresh `reqwest::Client` per transfer throws away the connection pool,
+/// so every book used to pay a fresh TCP + TLS handshake — and, on a lossy
+/// or high-latency link, a fresh TCP slow start — before its first byte
+/// arrived. That is what made every book sit at "0 B/s" for several seconds
+/// at the start. Sharing one client per trust mode keeps the pooled
+/// connections (and their warmed-up congestion windows) alive across books
+/// and files.
+fn shared_client(relaxed: bool) -> &'static reqwest::Client {
+    static VERIFIED: OnceLock<reqwest::Client> = OnceLock::new();
+    static RELAXED: OnceLock<reqwest::Client> = OnceLock::new();
+
+    if relaxed {
+        RELAXED.get_or_init(|| {
+            reqwest::ClientBuilder::new()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .redirect(reqwest::redirect::Policy::none())
+                .pool_max_idle_per_host(16)
+                .tcp_keepalive(std::time::Duration::from_secs(30))
+                .tcp_nodelay(true)
+                .build()
+                .expect("failed to build the relaxed HTTP client")
+        })
+    } else {
+        VERIFIED.get_or_init(|| {
+            reqwest::ClientBuilder::new()
+                .pool_max_idle_per_host(16)
+                .tcp_keepalive(std::time::Duration::from_secs(30))
+                .tcp_nodelay(true)
+                .build()
+                .expect("failed to build the HTTP client")
+        })
+    }
+}
 
 // The TransferStats struct tracks both transfer speed and cumulative transfer progress.
 pub struct TransferStats {
@@ -48,10 +104,18 @@ impl TransferStats {
     }
     // Records the transfer of a data chunk and updates both transfer speed and total progress.
     pub fn record_chunk_transfer(&mut self, chunk_len: usize) {
+        self.record_chunk_speed(chunk_len);
+        self.total_transferred += chunk_len as u64;
+    }
+
+    // Records a chunk for the speed calculation only. Use this while a unit is
+    // still in flight: the bytes are not committed to the total until the unit
+    // has fully arrived, so a unit that fails and is retried is not counted
+    // twice (which would push the reported progress past the total).
+    pub fn record_chunk_speed(&mut self, chunk_len: usize) {
         let now = Instant::now();
         let it_took = now.duration_since(self.start_time).as_millis();
         self.accumulated_chunk_len += chunk_len;
-        self.total_transferred += chunk_len as u64;
         self.accumulated_time += it_took;
 
         // Calculate transfer speed if accumulated time exceeds granularity.
@@ -64,6 +128,11 @@ impl TransferStats {
 
         // Reset the start time for the next period.
         self.start_time = now;
+    }
+
+    // Commits the bytes of a fully received unit to the cumulative total.
+    pub fn commit_transferred(&mut self, chunk_len: usize) {
+        self.total_transferred += chunk_len as u64;
     }
 }
 
@@ -296,18 +365,16 @@ pub async fn download_file<R: tauri::Runtime>(
     let allowed_path = ensure_path_allowed(&app, file_path)?;
     let file_path = allowed_path.as_path();
 
-    const PART_SIZE: u64 = 1024 * 1024;
-
     let relaxed = skip_ssl_verification.unwrap_or(false);
-    let mut builder = reqwest::ClientBuilder::new()
-        .danger_accept_invalid_certs(relaxed)
-        .danger_accept_invalid_hostnames(relaxed);
-    let mut verified = None;
-    if relaxed {
-        builder = builder.redirect(reqwest::redirect::Policy::none());
-        verified = Some(reqwest::Client::new());
-    }
-    let client = builder.build()?;
+    let client = shared_client(relaxed);
+    // A relaxed download follows redirects by hand so that a hop to another
+    // origin is fetched without the caller's credentials; that hop uses the
+    // verified client.
+    let verified = if relaxed {
+        Some(shared_client(false))
+    } else {
+        None
+    };
     let force_single = single_threaded.unwrap_or(false);
 
     async fn single_threaded_download(
@@ -355,8 +422,8 @@ pub async fn download_file<R: tauri::Runtime>(
 
     if force_single {
         return single_threaded_download(
-            &client,
-            verified.as_ref(),
+            client,
+            verified,
             url,
             file_path,
             &headers,
@@ -369,7 +436,7 @@ pub async fn download_file<R: tauri::Runtime>(
     // Check if server supports range requests
     let mut range_headers = headers.clone();
     range_headers.insert("Range".into(), "bytes=0-0".into());
-    let range_resp = send(&client, verified.as_ref(), url, None, &range_headers).await?;
+    let range_resp = send(client, verified, url, None, &range_headers).await?;
     let accept_ranges = range_resp
         .headers()
         .get("accept-ranges")
@@ -391,10 +458,15 @@ pub async fn download_file<R: tauri::Runtime>(
         }
     }
 
+    // Drain the probe body. An unread response keeps its connection out of
+    // the pool for the whole download, which would force every part request
+    // to open a brand new connection (and pay a new TCP + TLS handshake).
+    let _ = range_resp.bytes().await;
+
     if !accept_ranges || total == 0 {
         return single_threaded_download(
-            &client,
-            verified.as_ref(),
+            client,
+            verified,
             url,
             file_path,
             &headers,
@@ -414,14 +486,27 @@ pub async fn download_file<R: tauri::Runtime>(
     const MAX_PART_RETRIES: u32 = 3;
     const PART_RETRY_BASE_DELAY_MS: u64 = 200;
 
+    /// Download one byte range of `url` into `file_path` at `start`.
+    ///
+    /// The part is streamed: every chunk that arrives is written to disk and
+    /// reported as progress, so the UI shows a live speed instead of a frozen
+    /// "0 B/s" until a whole part has been received. Each part writes through
+    /// its own file handle, so parts no longer queue behind one shared lock.
     async fn download_part(
         client: &reqwest::Client,
         url: &str,
         headers: &HashMap<String, String>,
+        file_path: &Path,
         start: u64,
         end: u64,
-    ) -> Result<bytes::Bytes> {
-        let mut req = client.get(url).header("Range", format!("bytes={start}-{end}"));
+        total: u64,
+        progress: &Arc<tokio::sync::Mutex<TransferStats>>,
+        on_progress: &Channel<ProgressPayload>,
+    ) -> Result<()> {
+        let expected = end - start + 1;
+        let mut req = client
+            .get(url)
+            .header("Range", format!("bytes={start}-{end}"));
         for (key, value) in headers {
             req = req.header(key, value);
         }
@@ -434,58 +519,90 @@ pub async fn download_file<R: tauri::Runtime>(
                 resp.text().await.unwrap_or_default(),
             ));
         }
-        let bytes = resp.bytes().await?;
-        if bytes.len() as u64 != end - start + 1 {
+
+        let mut file = OpenOptions::new().write(true).open(file_path).await?;
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+
+        let mut stream = resp.bytes_stream();
+        let mut written: u64 = 0;
+        while let Some(chunk) = stream.try_next().await? {
+            let len = chunk.len();
+            file.write_all(&chunk).await?;
+            written += len as u64;
+            let (transferred, transfer_speed) = {
+                let mut stat = progress.lock().await;
+                stat.record_chunk_speed(len);
+                (stat.total_transferred, stat.transfer_speed)
+            };
+            let _ = on_progress.send(ProgressPayload {
+                progress: transferred,
+                total,
+                transfer_speed,
+            });
+        }
+        file.flush().await?;
+
+        // Only a part that fully arrived counts towards progress. Counting
+        // the bytes of an attempt that then fails would double-count them on
+        // the retry and push the reported total past `total`.
+        {
+            let mut stat = progress.lock().await;
+            stat.commit_transferred(written as usize);
+        }
+
+        if written != expected {
             return Err(Error::ContentLength(format!(
                 "part {start}-{end}: expected {} bytes, got {}",
-                end - start + 1,
-                bytes.len()
+                expected, written
             )));
         }
-        Ok(bytes)
+        Ok(())
     }
 
     let part_count = total.div_ceil(PART_SIZE);
-    let file = File::create(file_path).await?;
-    file.set_len(total).await?;
+    {
+        let file = File::create(file_path).await?;
+        file.set_len(total).await?;
+    }
 
-    let file = Arc::new(tokio::sync::Mutex::new(file));
     let progress = Arc::new(tokio::sync::Mutex::new(TransferStats::default()));
 
-    let results: Vec<Result<()>> = stream::iter(0..part_count)
+    // try_buffer_unordered stops scheduling new parts as soon as one fails, so
+    // a doomed download does not keep pulling the remaining parts' bytes; the
+    // dropped in-flight futures also close their file handles, which lets the
+    // cleanup below delete the partial file even on Windows.
+    let results = stream::iter(0..part_count)
         .map(|i| {
             let client = client.clone();
-            let verified = verified.clone();
-            let file = Arc::clone(&file);
-            let progress = Arc::clone(&progress);
             let headers = headers.clone();
             let url = url.to_string();
+            let file_path = file_path.to_path_buf();
+            let progress = Arc::clone(&progress);
             let on_progress = on_progress.clone();
 
-            async move {
+            // try_buffer_unordered consumes a stream of Result<Future, E>, so
+            // each part future is wrapped in Ok; the future's own Result output
+            // is what short-circuits the buffer on failure.
+            Ok::<_, Error>(async move {
                 let start = i * PART_SIZE;
                 let end = min(start + PART_SIZE - 1, total - 1);
 
                 let mut attempt = 0u32;
                 loop {
-                    match download_part(&client, &url, &headers, start, end).await {
-                        Ok(bytes) => {
-                            {
-                                let mut f = file.lock().await;
-                                f.seek(std::io::SeekFrom::Start(start)).await?;
-                                f.write_all(&bytes).await?;
-                            }
-                            {
-                                let mut stat = progress.lock().await;
-                                stat.record_chunk_transfer(bytes.len());
-                                let _ = on_progress.send(ProgressPayload {
-                                    progress: stat.total_transferred,
-                                    total,
-                                    transfer_speed: stat.transfer_speed,
-                                });
-                            }
-                            return Ok(());
-                        }
+                    match download_part(
+                        &client,
+                        &url,
+                        &headers,
+                        &file_path,
+                        start,
+                        end,
+                        total,
+                        &progress,
+                        &on_progress,
+                    )
+                    .await
+                    {
+                        Ok(()) => return Ok(()),
                         Err(err) => {
                             attempt += 1;
                             if attempt >= MAX_PART_RETRIES {
@@ -498,17 +615,16 @@ pub async fn download_file<R: tauri::Runtime>(
                         }
                     }
                 }
-            }
+            })
         })
-        .buffer_unordered(8)
-        .collect::<Vec<_>>()
+        .try_buffer_unordered(PART_CONCURRENCY)
+        .try_collect::<Vec<()>>()
         .await;
 
     // Any part that still fails after its retries means the file on disk is
     // incomplete — delete it and report the error instead of returning a
     // "successful" broken download.
-    if let Some(err) = results.into_iter().find_map(std::result::Result::err) {
-        drop(file);
+    if let Err(err) = results {
         let _ = tokio::fs::remove_file(file_path).await;
         return Err(err);
     }
@@ -531,7 +647,7 @@ pub async fn upload_file<R: tauri::Runtime>(
     let file = File::open(file_path).await?;
     let file_len = file.metadata().await.unwrap().len();
 
-    let client = reqwest::Client::new();
+    let client = shared_client(false);
     let mut request = match method.to_uppercase().as_str() {
         "POST" => client.post(url),
         "PUT" => client.put(url),
@@ -577,9 +693,11 @@ fn file_to_body(channel: Channel<ProgressPayload>, file: File, file_len: u64) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        has_disallowed_components, is_within_app_storage, is_within_data_dir, resolve_path,
-        resolve_request, send,
+        has_disallowed_components, is_within_app_storage, is_within_data_dir, send,
     };
+    // Only the unix symlink tests exercise the path-resolution helpers.
+    #[cfg(unix)]
+    use super::{resolve_path, resolve_request};
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

@@ -44,7 +44,10 @@ export const createProgressHandler = (
   onProgress?: ProgressHandler,
 ) => {
   return (progress: ProgressPayload) => {
-    const fileProgress = progress.progress / progress.total;
+    // A chunked or unsigned response has no total, so the per-file ratio is
+    // unknown; report 0 instead of NaN, which would poison the whole
+    // aggregate percentage.
+    const fileProgress = progress.total > 0 ? progress.progress / progress.total : 0;
     const overallProgress = ((completedFilesRef.count + fileProgress) / totalFiles) * 100;
 
     if (onProgress) {

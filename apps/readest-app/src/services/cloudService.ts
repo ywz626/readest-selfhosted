@@ -270,6 +270,37 @@ export async function downloadCloudFile(
   await downloadFile({ appService, cfp, dst: dstPath, onProgress });
 }
 
+/**
+ * Aggregates the progress of files that are transferred at the same time.
+ *
+ * Each file reports its own byte counts; the aggregate is the mean of the
+ * per-file completion ratios and the summed transfer speed, so a small file
+ * (a cover) that finishes early stops holding the overall progress back
+ * while the book file is still arriving.
+ */
+const createAggregateProgressHandler = (
+  fileCount: number,
+  onProgress?: ProgressHandler,
+): ((index: number) => ProgressHandler) => {
+  const ratios: number[] = new Array(Math.max(fileCount, 0)).fill(0);
+  const speeds: number[] = new Array(Math.max(fileCount, 0)).fill(0);
+  return (index: number): ProgressHandler =>
+    (progress) => {
+      if (fileCount <= 0) return;
+      if (progress.total > 0) {
+        ratios[index] = Math.min(1, progress.progress / progress.total);
+      }
+      speeds[index] = progress.transferSpeed;
+      const ratioSum = ratios.reduce((acc, value) => acc + value, 0);
+      const speedSum = speeds.reduce((acc, value) => acc + value, 0);
+      onProgress?.({
+        progress: (ratioSum / fileCount) * 100,
+        total: 100,
+        transferSpeed: speedSum,
+      });
+    };
+};
+
 export async function downloadBookCovers(
   appService: AppService,
   fs: FileSystem,
@@ -322,48 +353,57 @@ export async function downloadBook(
 ): Promise<void> {
   let bookDownloaded = false;
   let bookCoverDownloaded = false;
-  const completedFiles = { count: 0 };
-  let toDownloadFpCount = 0;
   const needDownCover = !(await fs.exists(getCoverFilename(book), 'Books')) || redownload;
   const needDownBook =
     (!onlyCover && !(await fs.exists(getLocalBookFilename(book), 'Books'))) || redownload;
-  if (needDownCover) {
-    toDownloadFpCount++;
-  }
-  if (needDownBook) {
-    toDownloadFpCount++;
-  }
-
-  const handleProgress = createProgressHandler(toDownloadFpCount, completedFiles, onProgress);
+  const toDownloadFpCount = (needDownCover ? 1 : 0) + (needDownBook ? 1 : 0);
 
   if (!(await fs.exists(getDir(book), 'Books'))) {
     await fs.createDir(getDir(book), 'Books');
   }
 
-  try {
-    if (needDownCover) {
-      const lfp = getCoverFilename(book);
-      const cfp = `${CLOUD_BOOKS_SUBDIR}/${lfp}`;
-      await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-      bookCoverDownloaded = true;
-    }
-  } catch (error) {
-    // don't throw error here since some books may not have cover images at all
-    console.log(`Failed to download cover file for book: '${book.title}'`, error);
-  } finally {
-    if (needDownCover) {
-      completedFiles.count++;
-    }
-  }
+  // The cover and the book file are fetched at the same time. They used to be
+  // downloaded one after the other, and every file pays its own round trips
+  // to the server (metadata lookup, range probe, connection setup), so the
+  // book only started moving once the cover had been fetched, written to
+  // disk and reported.
+  const handleProgress = createAggregateProgressHandler(toDownloadFpCount, onProgress);
+  let fileIndex = 0;
 
-  if (needDownBook) {
-    const lfp = getLocalBookFilename(book);
-    const cfp = `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`;
-    await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-    const localFullpath = `${localBooksDir}/${lfp}`;
-    bookDownloaded = await fs.exists(localFullpath, 'None');
-    completedFiles.count++;
-  }
+  const coverTask = needDownCover
+    ? downloadCloudFile(
+        appService,
+        localBooksDir,
+        getCoverFilename(book),
+        `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
+        handleProgress(fileIndex++),
+      ).then(
+        () => {
+          bookCoverDownloaded = true;
+        },
+        (error) => {
+          // Some books have no cover image at all, so a missing cover must not
+          // fail the download of the book itself.
+          console.log(`Failed to download cover file for book: '${book.title}'`, error);
+        },
+      )
+    : Promise.resolve();
+
+  const bookTask = needDownBook
+    ? downloadCloudFile(
+        appService,
+        localBooksDir,
+        getLocalBookFilename(book),
+        `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`,
+        handleProgress(fileIndex++),
+      ).then(async () => {
+        const localFullpath = `${localBooksDir}/${getLocalBookFilename(book)}`;
+        bookDownloaded = await fs.exists(localFullpath, 'None');
+      })
+    : Promise.resolve();
+
+  await Promise.all([coverTask, bookTask]);
+
   // some books may not have cover image, so we need to check if the book is downloaded
   if (bookDownloaded || (!onlyCover && !needDownBook)) {
     book.downloadedAt = Date.now();

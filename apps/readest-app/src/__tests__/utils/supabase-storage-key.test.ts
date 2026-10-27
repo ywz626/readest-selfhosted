@@ -5,7 +5,7 @@ const loadStorageKey = async (url?: string) => {
   if (url) vi.stubEnv('SUPABASE_URL', url);
   vi.stubEnv('SUPABASE_ANON_KEY', 'anon-key');
   const { supabase } = await import('@/utils/supabase');
-  return (supabase.auth as unknown as { storageKey: string }).storageKey;
+  return (supabase!.auth as unknown as { storageKey: string }).storageKey;
 };
 
 describe('supabase session storage key', () => {

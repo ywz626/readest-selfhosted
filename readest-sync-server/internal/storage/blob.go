@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,31 +15,64 @@ import (
 // blobKeyPrefix is stripped from the request path to recover the storage key.
 const blobKeyPrefix = "/api/storage/blob/"
 
+// validUserKey reports whether key addresses a path inside the caller's own
+// namespace. The bare prefix check is not enough: "owner/../other/x" passes
+// it, and filepath.Clean later collapses the "..", so the object lands — and
+// is read back — outside the caller's tree (and outside the quota accounting,
+// which only lists "uid/").
+func validUserKey(uid, key string) bool {
+	if key == "" || !strings.HasPrefix(key, uid+"/") {
+		return false
+	}
+	for _, part := range strings.FieldsFunc(key, func(r rune) bool {
+		return r == '/' || r == '\\'
+	}) {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // PUT /api/storage/blob/<key>  (key form: owner/Readest/Books/<hash>/<file>)
 func (h *StorageHandler) BlobPut(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, blobKeyPrefix)
 	uid := middleware.UserID(r)
-	if !strings.HasPrefix(key, uid+"/") {
+	if !validUserKey(uid, key) {
 		http.Error(w, `{"error":"forbidden","code":"AUTH"}`, http.StatusForbidden)
 		return
 	}
 	// Enforce the storage quota before accepting the body so a misbehaving or
-	// compromised client cannot fill the disk.
-	if r.ContentLength > 0 {
-		used, err := h.computeUsage(r.Context(), uid)
-		if err != nil {
-			http.Error(w, `{"error":"usage check failed","code":"SERVER"}`, http.StatusInternalServerError)
-			return
-		}
-		if used+r.ContentLength > h.quotaBytes {
+	// compromised client cannot fill the disk. A chunked upload carries no
+	// Content-Length (-1), so the body stream itself is capped at the
+	// remaining quota instead of skipping the check.
+	used, err := h.computeUsage(r.Context(), uid)
+	if err != nil {
+		http.Error(w, `{"error":"usage check failed","code":"SERVER"}`, http.StatusInternalServerError)
+		return
+	}
+	if used >= h.quotaBytes {
+		http.Error(w, `{"error":"storage quota exceeded","code":"QUOTA_EXCEEDED"}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+	remaining := h.quotaBytes - used
+	if r.ContentLength > remaining {
+		http.Error(w, `{"error":"storage quota exceeded","code":"QUOTA_EXCEEDED"}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, remaining)
+	if err := h.fs.Put(r.Context(), key, r.Body, r.ContentLength); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
 			http.Error(w, `{"error":"storage quota exceeded","code":"QUOTA_EXCEEDED"}`, http.StatusRequestEntityTooLarge)
 			return
 		}
-	}
-	if err := h.fs.Put(r.Context(), key, r.Body, r.ContentLength); err != nil {
 		http.Error(w, `{"error":"put failed","code":"SERVER"}`, http.StatusInternalServerError)
 		return
 	}
+	// Fold the new bytes into the cached quota measurement so consecutive
+	// uploads inside the cache window are checked against the real usage.
+	h.addCachedUsage(uid, r.ContentLength)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -84,7 +119,7 @@ func parseRangeHeader(header string) (offset, length int64, ranged bool) {
 func (h *StorageHandler) BlobGet(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, blobKeyPrefix)
 	uid := middleware.UserID(r)
-	if !strings.HasPrefix(key, uid+"/") {
+	if !validUserKey(uid, key) {
 		http.Error(w, "", http.StatusForbidden)
 		return
 	}
@@ -110,7 +145,16 @@ func (h *StorageHandler) BlobGet(w http.ResponseWriter, r *http.Request) {
 
 	if !ranged {
 		w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
-		io.Copy(w, rc)
+		// io.CopyN wraps the reader in a single io.LimitedReader, which is
+		// what lets net/http hand a plain file to sendfile(2) instead of
+		// copying every byte through a 32 KiB userspace buffer.
+		w.WriteHeader(http.StatusOK)
+		// A short read (object truncated by a concurrent overwrite after
+		// Stat) would otherwise silently emit a body shorter than the
+		// Content-Length we already promised.
+		if _, err := io.CopyN(w, rc, total); err != nil {
+			log.Printf("blob get %s: short body: %v", key, err)
+		}
 		return
 	}
 
@@ -126,5 +170,7 @@ func (h *StorageHandler) BlobGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
 	w.WriteHeader(http.StatusPartialContent)
-	io.CopyN(w, rc, length)
+	if _, err := io.CopyN(w, rc, length); err != nil {
+		log.Printf("blob get %s: short range body: %v", key, err)
+	}
 }

@@ -58,7 +58,7 @@ beforeEach(async () => {
     if (url.pathname === '/auth/v1/logout') return new Response(null, { status: 204 });
     throw new Error(`Unexpected auth request: ${url.pathname}`);
   });
-  const { error } = await supabase.auth.signInWithPassword({
+  const { error } = await supabase!.auth.signInWithPassword({
     email: user.email,
     password: 'test-password',
   });
@@ -86,7 +86,7 @@ describe('AuthContext logout', () => {
     expect(requests).toHaveLength(1);
     expect(new URL(String(requests[0]![0])).searchParams.get('scope')).toBe('local');
     expect(requests[0]![1]?.method).toBe('POST');
-    expect((await supabase.auth.getSession()).data.session).toBeNull();
+    expect((await supabase!.auth.getSession()).data.session).toBeNull();
     expect(result.current.token).toBeNull();
     expect(result.current.user).toBeNull();
     for (const key of ['token', 'refresh_token', 'user', 'logout-test-session']) {

@@ -139,6 +139,38 @@ func TestBlobPutGet(t *testing.T) {
 	}
 }
 
+// TestValidUserKeyRejectsTraversal pins the authorization rule for blob keys:
+// a key that merely starts with "uid/" is not enough — "uid/../other/x" also
+// passes that prefix check, but filepath.Clean later collapses the "..", so
+// the object would land (and be readable) outside the caller's tree while the
+// quota accounting — which only lists "uid/" — never sees it.
+func TestValidUserKeyRejectsTraversal(t *testing.T) {
+	ok := []string{
+		"owner/Readest/Books/h1/h1.epub",
+		"owner/Readest/Replicas/progress/r1/db.sqlite",
+		"owner/temp/tmp.bin",
+		"owner/files/plain.bin",
+	}
+	for _, k := range ok {
+		if !validUserKey("owner", k) {
+			t.Errorf("validUserKey(owner, %q) = false, want true", k)
+		}
+	}
+	bad := []string{
+		"",
+		"owner",
+		"attacker/x.epub",
+		"owner/../attacker/x.epub",
+		"owner/Readest/../../attacker/x.epub",
+		`owner\..\attacker\x.epub`,
+	}
+	for _, k := range bad {
+		if validUserKey("owner", k) {
+			t.Errorf("validUserKey(owner, %q) = true, want false", k)
+		}
+	}
+}
+
 // TestBlobGetLegacyKey verifies that files uploaded with the pre-fix key layout
 // (owner/books/<hash>/Readest/Books/<hash>/<file>) remain downloadable.
 func TestBlobGetLegacyKey(t *testing.T) {

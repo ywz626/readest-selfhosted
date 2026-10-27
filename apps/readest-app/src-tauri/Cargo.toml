@@ -54,6 +54,11 @@ read-progress-stream = "1.0.0"
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "stream",
+  # HTTP/2 lets the part requests of one book multiplex over a single
+  # connection, so a download no longer needs one TCP + TLS handshake per
+  # part. reqwest falls back to HTTP/1.1 when the server does not negotiate
+  # h2, so this is a pure win when a proxy offers it.
+  "http2",
 ] }
 # `default-features = false` so the Linux CEF build (`pnpm tauri`) can pick
 # the webview runtime: tauri's defaults are spelled out here and `wry` (with

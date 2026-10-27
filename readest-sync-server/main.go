@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -107,5 +109,17 @@ func main() {
 		r.Get("/api/metadata/search", proxy.MetadataSearch)
 	})
 
-	_ = http.ListenAndServe(cfg.ListenAddr, r)
+	// An explicit server instead of http.ListenAndServe so the timeouts are
+	// deliberate. There is deliberately NO WriteTimeout: a book download
+	// streams for as long as the file is large, and a write deadline would
+	// cut the transfer off mid-file.
+	srv := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("server error: %v", err)
+	}
 }

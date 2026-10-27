@@ -178,7 +178,11 @@ export const useTransferStore = create<TransferState>((set, get) => ({
   transfers: {},
   isQueuePaused: false,
   isTransferQueueOpen: false,
-  maxConcurrent: 2,
+  // How many books may be transferred at the same time. Each book opens its
+  // own set of part requests, so this is the main lever on batch throughput:
+  // with only two books in flight the queue spent most of its time waiting
+  // for a book's first bytes to arrive instead of moving data.
+  maxConcurrent: 4,
   activeCount: 0,
 
   setIsTransferQueueOpen: (isOpen) => set({ isTransferQueueOpen: isOpen }),

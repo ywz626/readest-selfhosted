@@ -72,6 +72,7 @@ const renderHeader = (isSelectMode: boolean) =>
       onSearchConfigChange={vi.fn()}
       onSearchQueryChange={vi.fn()}
       onSearchTargetChange={vi.fn()}
+      onOpenRandomPick={vi.fn()}
     />,
   );
 
@@ -121,6 +122,7 @@ describe('LibraryHeader window drag (#6917)', () => {
         onSearchConfigChange={vi.fn()}
         onSearchQueryChange={vi.fn()}
         onSearchTargetChange={vi.fn()}
+        onOpenRandomPick={vi.fn()}
       />,
     );
     await pressHeader(container.querySelector('.titlebar')!);

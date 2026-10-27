@@ -33,6 +33,11 @@ replay_pid*.log
 *.pem
 /certs
 
+# signing keys — never commit (the Android release keystore sits at the repo root)
+*.keystore
+*.jks
+keystore.properties
+
 # debug
 npm-debug.log*
 yarn-debug.log*

@@ -12,6 +12,10 @@ type FileStore interface {
 	// GetRange returns a reader for the byte range [offset, offset+length) of
 	// the object plus its total size. A non-positive length reads through the
 	// end of the object. Used to serve HTTP Range requests.
+	//
+	// The reader is positioned at `offset`; the caller limits the read to
+	// `length` bytes. Returning the underlying file (instead of a buffered
+	// wrapper) lets net/http serve the range with sendfile(2).
 	GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error)
 	Delete(ctx context.Context, key string) error
 	// UploadURL returns a URL the client can PUT directly (for S3). For local, returns a local blob route.

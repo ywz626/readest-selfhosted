@@ -55,16 +55,14 @@ func (f *LocalDiskStore) Get(ctx context.Context, key string) (io.ReadCloser, er
 	return os.Open(p)
 }
 
-// limitedReadCloser wraps a range-limited reader and closes the underlying file.
-type limitedReadCloser struct {
-	io.Reader
-	closer io.Closer
-}
-
-func (l *limitedReadCloser) Close() error { return l.closer.Close() }
-
 // GetRange returns a reader for [offset, offset+length) of the object plus its
 // total size. A non-positive length reads through the end of the object.
+//
+// The reader is the *os.File itself, positioned at `offset`, and NOT a
+// buffered wrapper: net/http hands a plain file to sendfile(2), so a ranged
+// response leaves the kernel directly instead of being shuttled through a
+// 32 KiB userspace buffer. The caller must therefore limit the read to
+// `length` bytes.
 func (f *LocalDiskStore) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, int64, error) {
 	p, err := f.safePath(key)
 	if err != nil {
@@ -86,15 +84,11 @@ func (f *LocalDiskStore) GetRange(ctx context.Context, key string, offset, lengt
 	if offset > total {
 		offset = total
 	}
-	end := total
-	if length > 0 && offset+length < end {
-		end = offset + length
-	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		file.Close()
 		return nil, 0, err
 	}
-	return &limitedReadCloser{Reader: io.LimitReader(file, end-offset), closer: file}, total, nil
+	return file, total, nil
 }
 
 func (f *LocalDiskStore) Delete(ctx context.Context, key string) error {

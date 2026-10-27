@@ -127,11 +127,6 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
     setIsDropdownOpen?.(false);
   };
 
-  const handleMyReading = () => {
-    router.push('/stats');
-    setIsDropdownOpen?.(false);
-  };
-
   const cycleThemeMode = () => {
     setThemeMode(nextThemeMode(themeMode, !!appService?.hasAmbientLightSensor));
   };

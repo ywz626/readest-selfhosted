@@ -101,32 +101,12 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({
   // parseNoteMarkdown is heavy when called on every list scroll re-render
   // across hundreds of items. Cache by note text — note edits change
   // item.note and bust the cache automatically. Compact rows only parse when
-  // expanded; collapsed ones show the plain-text preview instead.
+  // expanded; collapsed ones show the source text alone.
   const [expanded, setExpanded] = useState(false);
   const noteHtml = useMemo(
     () => (note && (!compact || expanded) ? parseNoteMarkdown(note) : ''),
     [note, compact, expanded],
   );
-
-  // Compact rows show a one-line plain-text preview of the note: the first
-  // content line of the markdown source with inline markers stripped.
-  const notePreview = useMemo(() => {
-    if (!compact || !note) return '';
-    const line =
-      note
-        .split('\n')
-        .map((l) => l.trim())
-        .find((l) => l.replace(/[#>*`\-|[\]]/g, '').trim().length > 0) ?? '';
-    return line
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/^>\s?/, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/\|/g, ' ')
-      .trim();
-  }, [compact, note]);
 
   // iOS WebKit applies :hover at touchstart, so every scroll touch would expand
   // the card under the finger (#6568). There a long press reveals the actions
@@ -152,7 +132,7 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({
       return;
     }
     // Compact rows with a note expand/collapse on click instead of navigating;
-    // the source-text line carries the jump (handleSourceClick).
+    // expand the row to reach the note actions.
     if (compact && item.note) {
       setExpanded((value) => !value);
       return;
@@ -164,13 +144,6 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({
     eventDispatcher.dispatch('navigate', { bookKey, cfi });
     onClick?.();
     getView(bookKey)?.goTo(cfi);
-  };
-
-  const handleSourceClick = (event: React.MouseEvent) => {
-    if (!compact) return;
-    event.stopPropagation();
-    event.preventDefault();
-    navigateToCfi();
   };
 
   const deleteNote = (note: BookNote) => {
@@ -230,40 +203,6 @@ const BooknoteItem: React.FC<BooknoteItemProps> = ({
   const editBookmark = () => startEdit(text || '');
 
   const editNoteInline = () => startEdit(item.note || '');
-
-  // Shared between the full card and the compact index row. In compact mode
-  // the source text is the primary line, so it keeps the normal size instead
-  // of shrinking when a note exists — and it doubles as the jump-to-location
-  // target, since the row click toggles expansion instead.
-  const textSpan = (
-    <span
-      className={clsx(
-        'booknote-text inline leading-normal',
-        item.note && !compact && 'content font-size-xs text-base-content',
-        (item.style === 'underline' || item.style === 'squiggly') && 'underline decoration-2',
-        item.style === 'highlight' && 'rounded-[4px] px-[2px] py-[1px]',
-        item.style === 'squiggly' && 'decoration-wavy',
-      )}
-      style={
-        {
-          ...(item.style === 'highlight'
-            ? {
-                backgroundColor: `color-mix(in srgb, ${customColors[item.color as HighlightColor] || item.color} calc(var(--overlayer-highlight-opacity, 0.3) * 100%), transparent)`,
-              }
-            : {}),
-          ...(item.style === 'underline' || item.style === 'squiggly'
-            ? {
-                textDecorationColor: `color-mix(in srgb, ${customColors[item.color as HighlightColor] || item.color} 80%, transparent)`,
-              }
-            : {}),
-        } as React.CSSProperties
-      }
-      onClick={compact ? handleSourceClick : undefined}
-      title={compact ? _('Open in book') : undefined}
-    >
-      {text || ''}
-    </span>
-  );
 
   if (inlineEditMode) {
     return (

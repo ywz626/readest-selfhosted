@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"readestsync/internal/middleware"
 	"readestsync/internal/store"
@@ -15,13 +17,36 @@ type StorageHandler struct {
 	ms         store.MetadataStore
 	fs         store.FileStore
 	quotaBytes int64
+
+	usageMu    sync.Mutex
+	usageCache map[string]usageEntry
 }
+
+// usageEntry is a cached quota measurement together with the time it was
+// taken.
+type usageEntry struct {
+	used int64
+	at   time.Time
+}
+
+// usageCacheTTL bounds how stale a cached quota measurement may be. The
+// quota check runs on every upload, and measuring the usage means listing
+// the whole user tree — O(files) per upload, which made a batch upload walk
+// the tree once per book. A short-lived cache turns that into an O(1)
+// lookup; the cost is that a user may exceed the soft quota by at most what
+// they upload within the TTL.
+const usageCacheTTL = 5 * time.Second
 
 func NewStorageHandler(ms store.MetadataStore, fs store.FileStore, quotaBytes int64) *StorageHandler {
 	if quotaBytes <= 0 {
 		quotaBytes = 1 << 60
 	}
-	return &StorageHandler{ms: ms, fs: fs, quotaBytes: quotaBytes}
+	return &StorageHandler{
+		ms:         ms,
+		fs:         fs,
+		quotaBytes: quotaBytes,
+		usageCache: make(map[string]usageEntry),
+	}
 }
 
 // POST /api/storage/upload  body {"fileName","fileSize","bookHash?","replicaKind?","replicaId?","temp?","media?"}
@@ -191,33 +216,75 @@ func (h *StorageHandler) List(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/storage/stats
 // computeUsage sums the stored bytes of a user. Shared by Stats and the quota
 // enforcement in BlobPut.
+//
+// The measurement itself lists the whole user tree, so the result is cached
+// for a few seconds: BlobPut asks for it on every single upload, and without
+// the cache a batch upload walked the entire tree once per book.
 func (h *StorageHandler) computeUsage(ctx context.Context, uid string) (int64, error) {
+	h.usageMu.Lock()
+	if entry, ok := h.usageCache[uid]; ok && time.Since(entry.at) < usageCacheTTL {
+		h.usageMu.Unlock()
+		return entry.used, nil
+	}
+	h.usageMu.Unlock()
+
 	all, err := h.fs.List(uid + "/")
 	if err != nil {
 		return 0, err
 	}
+	usage := sumSizes(all)
+
+	h.usageMu.Lock()
+	h.usageCache[uid] = usageEntry{used: usage, at: time.Now()}
+	h.usageMu.Unlock()
+	return usage, nil
+}
+
+// sumSizes adds up the size of every listed file.
+func sumSizes(all []store.FileMeta) int64 {
 	var usage int64
 	for _, f := range all {
 		usage += f.Size
 	}
-	return usage, nil
+	return usage
 }
 
-func (h *StorageHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	uid := middleware.UserID(r)
-	usage, err := h.computeUsage(r.Context(), uid)
-	if err != nil {
-		writeError(w, err)
+// invalidateUsage drops the cached quota measurement of a user, so a delete
+// is reflected in the next quota check instead of after the cache expires.
+func (h *StorageHandler) invalidateUsage(uid string) {
+	h.usageMu.Lock()
+	delete(h.usageCache, uid)
+	h.usageMu.Unlock()
+}
+
+// addCachedUsage folds newly stored bytes into the cached quota measurement,
+// so consecutive uploads inside the cache window are checked against the
+// real usage. A cache miss is left alone: the next measurement reads the
+// tree anyway.
+func (h *StorageHandler) addCachedUsage(uid string, size int64) {
+	if size <= 0 {
 		return
 	}
+	h.usageMu.Lock()
+	if entry, ok := h.usageCache[uid]; ok {
+		h.usageCache[uid] = usageEntry{used: entry.used + size, at: time.Now()}
+	}
+	h.usageMu.Unlock()
+}
+
+// GET /api/storage/stats
+func (h *StorageHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	uid := middleware.UserID(r)
 	all, err := h.fs.List(uid + "/")
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	// The stats page reports the exact usage, so it measures the tree
+	// directly instead of using the cached value the quota check reads.
+	usage := sumSizes(all)
 	byBook := map[string]struct {
 		FileCount int64
 		TotalSize int64
@@ -262,7 +329,7 @@ func (h *StorageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Scope deletes to the caller's own key space, mirroring BlobPut/BlobGet.
-	if !strings.HasPrefix(key, uid+"/") {
+	if !validUserKey(uid, key) {
 		http.Error(w, `{"error":"forbidden","code":"AUTH"}`, http.StatusForbidden)
 		return
 	}
@@ -270,6 +337,7 @@ func (h *StorageHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.invalidateUsage(uid)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -287,7 +355,7 @@ func (h *StorageHandler) Purge(w http.ResponseWriter, r *http.Request) {
 	failed := make([]map[string]string, 0)
 	for _, k := range body.FileKeys {
 		// Scope deletes to the caller's own key space, mirroring BlobPut/BlobGet.
-		if !strings.HasPrefix(k, uid+"/") {
+		if !validUserKey(uid, k) {
 			failed = append(failed, map[string]string{"fileKey": k, "error": "forbidden"})
 			continue
 		}
@@ -296,6 +364,9 @@ func (h *StorageHandler) Purge(w http.ResponseWriter, r *http.Request) {
 		} else {
 			success = append(success, k)
 		}
+	}
+	if len(success) > 0 {
+		h.invalidateUsage(uid)
 	}
 	writeJSON(w, map[string]interface{}{
 		"success":      success,
