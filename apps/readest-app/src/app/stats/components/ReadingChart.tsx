@@ -5,6 +5,7 @@ import isoWeek from 'dayjs/plugin/isoWeek';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatReadingDuration } from '@/utils/time';
 import type { DailyReadTime, MonthlyReadTime, ReadingOverview } from '@/types/statistics';
+import ReadingHeatmap from './ReadingHeatmap';
 
 dayjs.extend(isoWeek);
 
@@ -28,6 +29,15 @@ interface ReadingChartProps {
 }
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+/**
+ * A month's 28–31 bars have to share ~300px on a phone. The bars are squeezed
+ * to a 2px gutter so they still fit, and the day numbers below them thin out to
+ * every fifth day (plus the 1st) — 31 two-digit labels never fit, and printing
+ * them all was what pushed the whole page into horizontal scrolling.
+ */
+const MONTH_BAR_GAP = 'gap-[2px] sm:gap-1.5';
+const MONTH_LABEL_STEP = 5;
 
 /** Reading-time bar chart with Week/Month/Year/Total tabs. */
 const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartProps) => {
@@ -141,6 +151,20 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     setSelectedMonth(null);
   };
 
+  /**
+   * A heatmap cell drills into its day: the Month tab already carries a per-day
+   * selection that both highlights the bar and re-scopes the range reported to
+   * the page, so switching to it is the "that day's statistics" view — the
+   * Top 10 ranking below updates to that day.
+   */
+  const handleSelectDay = (date: Dayjs) => {
+    setSelectedYear(date.year());
+    setSelectedMonthDate(date.startOf('month'));
+    setSelectedMonth(date.month() + 1);
+    setSelectedDay(date.date());
+    setActiveTab('month');
+  };
+
   // --- Range reporting ---
   const currentRange = useMemo<ChartRange>(() => {
     if (activeTab === 'total') return { tab: 'total', fromSec: null, toSec: null };
@@ -204,17 +228,36 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
   }, [currentRange, onRangeChange]);
 
   // --- Render Helpers ---
+  /**
+   * The period label doubles as a "back to the whole period" button: after a
+   * bar has been tapped (which narrows the Top 10 below to that day), tapping
+   * the label clears the day selection again. Tapping the same bar twice does
+   * the same thing, but that is not obvious, so this gives an explicit way out.
+   */
+  const periodLabel = (text: string, onClick: () => void, className?: string) => (
+    <button
+      type='button'
+      onClick={onClick}
+      className={clsx(
+        'hover:bg-base-200 max-w-[11rem] truncate rounded-md px-2 py-1 text-sm font-medium transition-colors',
+        className,
+      )}
+    >
+      {text}
+    </button>
+  );
+
   const renderNavigation = (tab: ChartTab) => {
     const prev = <span className='text-lg leading-none'>{'<'}</span>;
     const next = <span className='text-lg leading-none'>{'>'}</span>;
     if (tab === 'year') {
       return (
-        <div className='flex items-center gap-2 text-sm font-medium'>
-          <button onClick={goPrevYear} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+        <div className='flex items-center gap-1 text-sm font-medium'>
+          <button onClick={goPrevYear} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {prev}
           </button>
-          <span>{selectedYear}年</span>
-          <button onClick={goNextYear} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+          {periodLabel(`${selectedYear}年`, () => setSelectedMonth(null))}
+          <button onClick={goNextYear} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {next}
           </button>
         </div>
@@ -222,14 +265,14 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     }
     if (tab === 'month') {
       return (
-        <div className='flex items-center gap-2 text-sm font-medium'>
-          <button onClick={goPrevMonth} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+        <div className='flex items-center gap-1 text-sm font-medium'>
+          <button onClick={goPrevMonth} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {prev}
           </button>
-          <span>
-            {selectedMonthDate.year()}年{selectedMonthDate.month() + 1}月
-          </span>
-          <button onClick={goNextMonth} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+          {periodLabel(`${selectedMonthDate.year()}年${selectedMonthDate.month() + 1}月`, () =>
+            setSelectedDay(null),
+          )}
+          <button onClick={goNextMonth} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {next}
           </button>
         </div>
@@ -238,14 +281,16 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     if (tab === 'week') {
       const end = selectedWeekStart.add(6, 'day');
       return (
-        <div className='flex items-center gap-2 text-sm font-medium'>
-          <button onClick={goPrevWeek} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+        <div className='flex items-center gap-1 text-sm font-medium'>
+          <button onClick={goPrevWeek} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {prev}
           </button>
-          <span className='text-xs'>
-            {selectedWeekStart.format('M月D日')} 至 {end.format('M月D日')}
-          </span>
-          <button onClick={goNextWeek} className='btn btn-ghost btn-sm h-7 min-h-7 w-7 p-0'>
+          {periodLabel(
+            `${selectedWeekStart.format('M月D日')} 至 ${end.format('M月D日')}`,
+            () => setSelectedWeekDay(null),
+            'text-xs sm:text-sm',
+          )}
+          <button onClick={goNextWeek} className='btn btn-ghost btn-sm h-8 min-h-8 w-8 p-0'>
             {next}
           </button>
         </div>
@@ -342,12 +387,16 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
     };
 
   /** Layout: left Y-axis column (plot + tick labels below) + right column (plot + x labels) */
-  const renderChartWithYAxis = (plotContent: React.ReactNode, xLabels: React.ReactNode) => (
-    <div className='flex gap-2'>
+  const renderChartWithYAxis = (
+    plotContent: React.ReactNode,
+    xLabels: React.ReactNode,
+    labelGap = 'gap-1.5 sm:gap-2',
+  ) => (
+    <div className='flex gap-2 sm:gap-3'>
       {/* Left column: y-axis ticks + spacer for x-label row */}
-      <div className='flex w-10 shrink-0 flex-col'>
+      <div className='flex w-11 shrink-0 flex-col'>
         <div
-          className={`relative flex ${PLOT_HEIGHT} flex-col justify-between text-right text-[10px] text-neutral-content`}
+          className={`relative flex ${PLOT_HEIGHT} flex-col justify-between text-right text-[11px] text-neutral-content`}
         >
           {[...yTicks].reverse().map((tick) => (
             <span key={tick} className='leading-none'>
@@ -356,7 +405,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
           ))}
         </div>
         {/* Spacer matching the x-label row height */}
-        <div className='text-[10px] leading-none'>&nbsp;</div>
+        <div className='text-[11px] leading-none'>&nbsp;</div>
       </div>
 
       {/* Right column: plot area + x-axis labels */}
@@ -377,7 +426,12 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
           {plotContent}
         </div>
         {/* X-axis labels, OUTSIDE the plot area */}
-        <div className='flex items-start gap-1.5 pt-1 text-[10px] leading-none text-neutral-content sm:gap-2'>
+        <div
+          className={clsx(
+            'text-neutral-content flex items-start pt-1.5 text-[11px] leading-none',
+            labelGap,
+          )}
+        >
           {xLabels}
         </div>
       </div>
@@ -386,19 +440,25 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
 
   // --- Main Render ---
   return (
-    <section aria-label={_('Reading Time Distribution')} className='flex flex-col gap-3'>
-      <div className='flex items-center justify-between'>
+    <section aria-label={_('Reading Time Distribution')} className='flex flex-col gap-4'>
+      {/* flex-wrap: on a phone the four tabs do not fit beside the heading, and
+          squeezing them made the row look cramped — they drop to their own line
+          instead. h-9/h-8 keeps the tap target usable (28px was too small). */}
+      <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-2'>
         <h2 className='text-base-content text-base font-semibold'>
           {_('Reading Time Distribution')}
         </h2>
-        <div role='tablist' className='tabs tabs-boxed h-8'>
+        <div role='tablist' className='tabs tabs-boxed h-9'>
           {(['week', 'month', 'year', 'total'] as ChartTab[]).map((tab) => (
             <button
               key={tab}
               role='tab'
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={clsx('tab h-7 min-h-7 px-3 text-xs', activeTab === tab && 'tab-active')}
+              className={clsx(
+                'tab h-8 min-h-8 px-3 text-xs sm:px-3.5',
+                activeTab === tab && 'tab-active',
+              )}
             >
               {_(
                 tab === 'week'
@@ -415,7 +475,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
       </div>
 
       {activeTab !== 'total' && (
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1'>
           <div className='text-neutral-content text-sm'>
             {activeTab === 'week' &&
               (selectedWeekDuration !== null && selectedWeekDay !== null
@@ -459,7 +519,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
                 <span
                   key={`wlabel-${i}`}
                   className={clsx(
-                    'flex-1 text-center',
+                    'min-w-0 flex-1 text-center',
                     isSelected && 'text-base-content font-semibold',
                   )}
                 >
@@ -475,7 +535,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
           const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
           const bar = makeBarRenderer(scaleMax, days.map(String));
           return renderChartWithYAxis(
-            <div className='absolute inset-0 flex items-end gap-1.5 sm:gap-2'>
+            <div className={`absolute inset-0 flex items-end ${MONTH_BAR_GAP}`}>
               {days.map((day) => {
                 const duration = yearMonthDays.get(day) ?? 0;
                 const isSelected = selectedDay === day;
@@ -486,11 +546,16 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
             </div>,
             days.map((day) => {
               const isSelected = selectedDay === day;
+              // Every fifth day (plus the 1st) keeps its number on a phone; on
+              // wider screens all of them fit. Hidden ones stay in the layout
+              // (`invisible`) so the labels keep lining up with their bars.
+              const sparse = day !== 1 && day % MONTH_LABEL_STEP !== 0;
               return (
                 <span
                   key={`mlabel-${day}`}
                   className={clsx(
-                    'flex-1 text-center',
+                    'min-w-0 flex-1 text-center',
+                    sparse && !isSelected && 'invisible sm:visible',
                     isSelected && 'text-base-content font-semibold',
                   )}
                 >
@@ -498,6 +563,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
                 </span>
               );
             }),
+            MONTH_BAR_GAP,
           );
         })()}
 
@@ -531,7 +597,7 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
                 <span
                   key={`ylabel-${month}`}
                   className={clsx(
-                    'flex-1 text-center',
+                    'min-w-0 flex-1 text-center',
                     isSelected && 'text-base-content font-semibold',
                   )}
                 >
@@ -541,6 +607,10 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
             }),
           );
         })()}
+
+      {activeTab === 'year' && years.length > 0 && (
+        <ReadingHeatmap daily={daily} year={selectedYear} onSelectDay={handleSelectDay} />
+      )}
 
       {activeTab === 'total' && (
         <div className='bg-primary/5 flex flex-col gap-4 rounded-xl p-6'>
@@ -572,6 +642,8 @@ const ReadingChart = ({ monthly, daily, overview, onRangeChange }: ReadingChartP
           </div>
         </div>
       )}
+
+      {activeTab === 'total' && <ReadingHeatmap daily={daily} onSelectDay={handleSelectDay} />}
     </section>
   );
 };

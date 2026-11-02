@@ -1,7 +1,6 @@
 import clsx from 'clsx';
 import React, { useEffect } from 'react';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { BiMoon, BiSun } from 'react-icons/bi';
 import { PiGear, PiChartBar } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
@@ -10,7 +9,6 @@ import { MdRemove, MdAdd, MdContrast } from 'react-icons/md';
 import { MdSync, MdSyncProblem } from 'react-icons/md';
 import { IoMdExpand } from 'react-icons/io';
 import { IoShareOutline } from 'react-icons/io5';
-import { setReadingStatsDialogVisible } from '@/components/stats/ReadingStatsDialog';
 import { TbArrowAutofitWidth } from 'react-icons/tb';
 import { TbColumns1, TbColumns2 } from 'react-icons/tb';
 import { TbCarouselVertical, TbCarouselHorizontal } from 'react-icons/tb';
@@ -30,6 +28,7 @@ import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAppRouter } from '@/hooks/useAppRouter';
 import { useCloudSyncStatus } from '@/hooks/useCloudSyncStatus';
 import { getStyles } from '@/utils/style';
 import { navigateToLogin } from '@/utils/nav';
@@ -56,7 +55,7 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
   onShowMetaHashDialog,
 }) => {
   const _ = useTranslation();
-  const router = useRouter();
+  const router = useAppRouter();
   const { user } = useAuth();
   const { envConfig, appService } = useEnv();
   const { getConfig, getBookData } = useBookDataStore();
@@ -110,7 +109,25 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
 
   const openReadingStats = () => {
     setIsDropdownOpen?.(false);
-    setReadingStatsDialogVisible(true);
+    // 记住当前阅读位置，否则 /stats 的「返回」只能落到书架：独立阅读窗口会被
+    // 改造成 library 窗口，正在读的书与窗口语义一起丢失。
+    const { pathname, search } = window.location;
+    const target = pathname.startsWith('/library')
+      ? '/stats'
+      : `/stats?redirect=${encodeURIComponent(pathname + search)}`;
+
+    // SPA 跳转不触发 beforeunload，必须先走阅读器的关闭流程：
+    // saveConfigAndCloseBook 负责落盘进度、flush KOSync/Notion、close/remove
+    // FoliateView 并清 viewState，否则这些副作用全部跳过。
+    let navigated = false;
+    const go = () => {
+      if (navigated) return;
+      navigated = true;
+      router.push(target);
+    };
+    eventDispatcher.dispatch('close-reader', { onClose: go });
+    // 没有阅读器挂载时没人监听 close-reader，超时兜底，避免按钮变成死键。
+    setTimeout(go, 2000);
   };
 
   const openSettingsDialog = () => {

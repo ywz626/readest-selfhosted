@@ -1190,6 +1190,7 @@
   "Continue in browser": "在浏览器中继续",
   "Don't have Readest?": "还没有 Readest？",
   "Book not in your library": "书库中没有这本书",
+  "Failed to open book": "打开书籍失败",
   "Share Book": "分享书籍",
   "Could not create share link": "无法创建分享链接",
   "Link copied": "链接已复制",

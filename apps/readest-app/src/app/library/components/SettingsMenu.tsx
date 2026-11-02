@@ -8,7 +8,6 @@ import { MdCloudSync, MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icon
 import { useAppRouter } from '@/hooks/useAppRouter';
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { DOWNLOAD_READEST_URL } from '@/services/constants';
-import { setReadingStatsDialogVisible } from '@/components/stats/ReadingStatsDialog';
 import { setBackupDialogVisible } from '@/app/library/components/BackupWindow';
 import { setCacheManagerDialogVisible } from '@/app/library/components/CacheManagerWindow';
 import { useAuth } from '@/context/AuthContext';
@@ -225,7 +224,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
 
   const openReadingStats = () => {
     setIsDropdownOpen?.(false);
-    setReadingStatsDialogVisible(true);
+    router.push('/stats');
   };
 
   const openSettingsDialog = () => {

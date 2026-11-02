@@ -83,9 +83,20 @@ describe('TopBooksList', () => {
     expect(screen.getByText('2')).toBeDefined();
   });
 
-  it('renders nothing without data', () => {
-    const { container } = render(<TopBooksList books={[]} />);
-    expect(container.innerHTML).toBe('');
+  it('keeps its heading and explains an empty range', () => {
+    render(<TopBooksList books={[]} title='8月12日 · Top 10 Books' />);
+    expect(screen.getByRole('heading', { name: '8月12日 · Top 10 Books' })).toBeDefined();
+    expect(screen.getByText('No reading data yet')).toBeDefined();
+  });
+
+  it('disables the row whose book is still opening', () => {
+    render(<TopBooksList books={books} onSelectBook={() => {}} pendingHash='m1' />);
+    const pending = screen.getByText('Book One').closest('button')!;
+    const idle = screen.getByText('Book Two').closest('button')!;
+
+    expect(pending.disabled).toBe(true);
+    expect(pending.getAttribute('aria-busy')).toBe('true');
+    expect(idle.disabled).toBe(false);
   });
 });
 

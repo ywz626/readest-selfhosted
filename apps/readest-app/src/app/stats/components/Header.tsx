@@ -22,6 +22,13 @@ const StatsHeader: React.FC<StatsHeaderProps> = ({ onGoBack }) => {
       className={clsx(
         'fixed z-30 flex w-full items-center justify-between py-2 pe-6 ps-4',
         appService?.hasTrafficLight && 'pt-11',
+        // A desktop window bar needs the whole strip to receive pointer events
+        // (WindowButtons binds the window drag listeners to this element) and
+        // stays see-through. Everywhere else the strip is opaque: the page now
+        // reserves its height with a spacer, so anything scrolling under it is
+        // genuinely covered and must not stay visible — or clickable — through
+        // an invisible overlay.
+        appService?.hasWindowBar ? 'bg-transparent' : 'bg-base-100',
       )}
     >
       <div className='flex items-center gap-2'>
