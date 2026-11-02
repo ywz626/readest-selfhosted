@@ -49,6 +49,28 @@ func resolveBookMerge(existing *BookRow, b BookRow) BookRow {
 	if existing == nil {
 		return b
 	}
+	// A tombstone is never cleared by a row that predates it. A peer that had
+	// not pulled the deletion yet can still hold a row whose only newer stamp is
+	// page-turn progress; letting that row win resurrected the book on every
+	// device. Only a row that is genuinely newer than the deletion may restore it.
+	//
+	// "Newer" must NOT be read off updated_at: page turns (sync.go
+	// piggybackBookProgress) and uploads (storage.stampBookUpload) both bump it,
+	// so a stale peer that read one page after the deletion would resurrect the
+	// book. Only a real field edit made after the deletion counts.
+	if existing.DeletedAt != nil && b.DeletedAt == nil && !restoredAfterTombstone(existing, b) {
+		b.DeletedAt = existing.DeletedAt
+		var serverData, clientData map[string]interface{}
+		if json.Unmarshal(existing.Data, &serverData) == nil &&
+			json.Unmarshal(b.Data, &clientData) == nil {
+			if deleted, ok := serverData["deleted_at"].(string); ok && deleted != "" {
+				clientData["deleted_at"] = deleted
+			}
+			if data, err := json.Marshal(clientData); err == nil {
+				b.Data = data
+			}
+		}
+	}
 	clientNewer := false
 	if b.DeletedAt != nil && (existing.DeletedAt == nil || *b.DeletedAt > *existing.DeletedAt) {
 		clientNewer = true
@@ -92,4 +114,41 @@ func resolveBookMerge(existing *BookRow, b BookRow) BookRow {
 		}
 	}
 	return *existing
+}
+
+// restoredAfterTombstone reports whether an incoming row carries evidence of a
+// DELIBERATE restore made after the deletion, which is the only thing allowed to
+// clear a tombstone. updated_at cannot be that evidence: page turns (sync.go
+// piggybackBookProgress) and uploads (storage.stampBookUpload) both bump it, so
+// a stale peer that merely read one page after the deletion would resurrect the
+// book on every device — which is the bug this guard exists for.
+func restoredAfterTombstone(existing *BookRow, b BookRow) bool {
+	var serverData, clientData map[string]interface{}
+	if json.Unmarshal(existing.Data, &serverData) != nil ||
+		json.Unmarshal(b.Data, &clientData) != nil {
+		return false
+	}
+	deletedAt, _ := serverData["deleted_at"].(string)
+	if deletedAt == "" {
+		return false
+	}
+	// 1. An explicit restore marker (newer clients set it when they clear
+	//    deletedAt on re-import / re-upload).
+	if ts, ok := clientData["restored_at"].(string); ok && ts > deletedAt {
+		return true
+	}
+	// 2. A real field edit made after the deletion.
+	for _, f := range []string{
+		"metadata_updated_at", "cover_updated_at", "group_updated_at", "reading_status_updated_at",
+	} {
+		if ts, ok := clientData[f].(string); ok && ts > deletedAt {
+			return true
+		}
+	}
+	// 3. The book file itself was uploaded again after the deletion, which only
+	//    re-import/re-upload does — a peer fetching it never pushes uploaded_at.
+	if ts, ok := clientData["uploaded_at"].(string); ok && ts > deletedAt {
+		return true
+	}
+	return false
 }

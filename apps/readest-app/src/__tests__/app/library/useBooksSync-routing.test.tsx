@@ -32,6 +32,10 @@ const syncState = vi.hoisted(() => ({
   useSyncInited: true,
   syncedBooks: null as Book[] | null,
   syncBooks: vi.fn(async (_books?: Book[], _op?: string, _since?: number) => 0),
+  // Reading progress (`configs`) is pulled alongside the book rows; kept empty
+  // here so these routing tests observe only the books channel.
+  syncedConfigs: null as unknown[] | null,
+  syncConfigs: vi.fn(async (..._args: unknown[]) => {}),
   // Kept falsy so the auto-sync effect's 'both' branch (which is not what
   // these tests are about) never fires and never contends with pullLibrary
   // over the shared isPullingRef guard. See the module doc comment above.
@@ -324,5 +328,46 @@ describe('useBooksSync pullLibrary routing (issue #5062)', () => {
     const toastCalls = dispatchSpy.mock.calls.filter(([event]) => event === 'toast');
     expect(toastCalls).toHaveLength(1);
     expect(toastCalls[0]?.[1]).toMatchObject({ type: 'info', message: '4 book(s) synced' });
+  });
+});
+
+/**
+ * Reading progress is a separate channel (`configs`) from the book rows. It used
+ * to be pulled only by the reader on book open, so a library-level sync left
+ * every book at its stale local position: sync, go offline, open a book — wrong
+ * page. Both library sync surfaces must pull it.
+ */
+describe('useBooksSync pulls reading progress (offline resume)', () => {
+  it('pulls the configs channel on a manual sync', async () => {
+    routing.readestEnabled = true;
+    routing.backends = [];
+
+    const { result } = renderHook(() => useBooksSync());
+    // Let the mount pull settle first: it holds the shared isPullingRef guard.
+    await waitFor(() => expect(syncState.syncConfigs).toHaveBeenCalled());
+    syncState.syncBooks.mockClear();
+    syncState.syncConfigs.mockClear();
+
+    await act(async () => {
+      await result.current.pullLibrary(false, true);
+    });
+
+    expect(syncState.syncConfigs).toHaveBeenCalledWith([], undefined, undefined, 'pull');
+  });
+
+  it('pulls the configs channel on auto sync', async () => {
+    routing.readestEnabled = true;
+    routing.backends = [];
+    // libraryLoaded=false keeps the mount pullLibrary (and its configs pull) out
+    // of the way, leaving the auto-sync path as the only caller.
+    useLibraryStore.setState({ libraryLoaded: false });
+    syncState.lastSyncedAtBooks = 1000;
+
+    renderHook(() => useBooksSync());
+
+    await waitFor(() => expect(syncState.syncBooks).toHaveBeenCalledWith([], 'both'));
+    await waitFor(() =>
+      expect(syncState.syncConfigs).toHaveBeenCalledWith([], undefined, undefined, 'pull'),
+    );
   });
 });

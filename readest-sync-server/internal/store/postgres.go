@@ -113,6 +113,31 @@ func (s *PostgresStore) GetBook(ctx context.Context, userID, bookHash string) (*
 	return &b, nil
 }
 
+// StampBookUploaded sets the upload marker in a single conditional UPDATE; see
+// the SqliteStore implementation for why it must not be a read-modify-write.
+func (s *PostgresStore) StampBookUploaded(ctx context.Context, userID, bookHash, isoNow string, nowMs int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE books
+		   SET data = jsonb_set(jsonb_set(jsonb_set(data::jsonb,
+		                       '{uploaded_at}', to_jsonb($1::text)),
+		                       '{updated_at}',  to_jsonb($1::text)),
+		                       '{synced_at}',   to_jsonb($1::text))::text,
+		       updated_at = $2,
+		       synced_at = $1
+		 WHERE user_id = $3 AND book_hash = $4
+		   AND deleted_at IS NULL
+		   AND (data::jsonb ->> 'uploaded_at') IS NULL`,
+		isoNow, nowMs, userID, bookHash)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UpsertBook mirrors the official sync server's row- and field-level LWW:
 //   - row-level: the incoming row wins if its deleted_at or updated_at is newer;
 //   - field-level: reading_status, cover_hash and metadata are each grafted

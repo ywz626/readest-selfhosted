@@ -34,6 +34,8 @@ const syncState = vi.hoisted(() => ({
   useSyncInited: true,
   syncedBooks: null as Book[] | null,
   syncBooks: vi.fn(async (_books?: Book[], _op?: string, _since?: number) => 0),
+  syncedConfigs: null as unknown[] | null,
+  syncConfigs: vi.fn(async (..._args: unknown[]) => {}),
   lastSyncedAtBooks: 1000,
 }));
 

@@ -1,3 +1,10 @@
+# Fixed project name + volume name so the deployment can move (git clone into a
+# new directory, renamed repo, `docker compose` run from anywhere) WITHOUT
+# orphaning the data volume: the sqlite DB and uploaded books live in
+# readest-sync-server_appdata, and an auto-derived project name would silently
+# mount a fresh empty one. Never change these two values on a live deployment.
+name: readest-sync-server
+
 services:
   app:
     build: .
@@ -39,5 +46,10 @@ services:
 
 volumes:
   appdata:
+    # Pinned: this is the existing production volume (4+ GB of sqlite +
+    # uploaded books). An auto-derived name would create a second, empty one.
+    name: readest-sync-server_appdata
   pgdata:
+    name: readest-sync-server_pgdata
   miniodata:
+    name: readest-sync-server_miniodata

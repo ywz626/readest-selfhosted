@@ -87,6 +87,11 @@ type MetadataStore interface {
 	UpsertBook(ctx context.Context, b BookRow) error
 	UpsertBooks(ctx context.Context, userID string, books []BookRow) error
 	GetBook(ctx context.Context, userID, bookHash string) (*BookRow, error)
+	// StampBookUploaded marks a book row as uploaded (uploaded_at/updated_at/
+	// synced_at) only when it carries no upload marker yet. Implementations MUST
+	// do it as ONE conditional statement: a read-modify-write lets a stale
+	// snapshot win row-level LWW and revert a push that landed in between.
+	StampBookUploaded(ctx context.Context, userID, bookHash, isoNow string, nowMs int64) (bool, error)
 	PullBooks(ctx context.Context, userID string, sinceISO string, limit int) ([]BookRow, error)
 	UpsertNote(ctx context.Context, userID string, data []byte) error
 	PullNotes(ctx context.Context, userID string, sinceMs int64) ([][]byte, error)

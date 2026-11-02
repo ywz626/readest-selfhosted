@@ -14,13 +14,21 @@ type SqliteStore struct {
 }
 
 func NewSqliteStore(dsn string) (*SqliteStore, error) {
+	// busy_timeout is per-connection: a one-off db.Exec only covers whichever
+	// connection the pool happened to hand out, while connections opened later
+	// keep the driver default (0 ms) and fail instantly with SQLITE_BUSY
+	// ("database is locked" -> HTTP 500) under a burst of pushes from several
+	// devices. modernc.org/sqlite runs every `_pragma=` from the DSN on EACH
+	// connection it opens, so the timeout has to live there. Callers pass a
+	// plain path (metadata.go strips the `file:` prefix).
+	dsn = withSqlitePragmas(dsn, "busy_timeout(30000)", "journal_mode(WAL)")
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	// WAL + busy timeout for concurrent access.
+	// Belt and braces for the first connection, and a no-op for the rest.
 	_, _ = db.Exec(`PRAGMA journal_mode=WAL;`)
-	_, _ = db.Exec(`PRAGMA busy_timeout=5000;`)
+	_, _ = db.Exec(`PRAGMA busy_timeout=30000;`)
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS books (
 			id TEXT, user_id TEXT, book_hash TEXT, meta_hash TEXT,
@@ -78,6 +86,22 @@ func NewSqliteStore(dsn string) (*SqliteStore, error) {
 	return &SqliteStore{db: db}, nil
 }
 
+// withSqlitePragmas appends modernc.org/sqlite `_pragma=` parameters, which the
+// driver executes on every connection it opens (a one-off PRAGMA only sticks to
+// the connection it ran on). Safe for both paths and ":memory:": the driver
+// separates the query from the name itself (sqlite.go newConn).
+func withSqlitePragmas(dsn string, pragmas ...string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	for _, p := range pragmas {
+		dsn += sep + "_pragma=" + p
+		sep = "&"
+	}
+	return dsn
+}
+
 func (s *SqliteStore) GetBook(ctx context.Context, userID, bookHash string) (*BookRow, error) {
 	var b BookRow
 	var data string
@@ -95,6 +119,34 @@ func (s *SqliteStore) GetBook(ctx context.Context, userID, bookHash string) (*Bo
 	return &b, nil
 }
 
+// StampBookUploaded sets the upload marker in a single conditional UPDATE.
+// Doing it as GetBook -> mutate -> UpsertBook re-applied a snapshot read before
+// a concurrent push: the stamp's fresh updated_at then won row-level LWW and
+// mergeBookFieldsClientWins grafted the stale fields back over the new row.
+// Deleted rows are left alone so a stray re-upload cannot fight a tombstone.
+func (s *SqliteStore) StampBookUploaded(ctx context.Context, userID, bookHash, isoNow string, nowMs int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE books
+		   SET data = json_set(data,
+		                       '$.uploaded_at', ?,
+		                       '$.updated_at', ?,
+		                       '$.synced_at', ?),
+		       updated_at = ?,
+		       synced_at = ?
+		 WHERE user_id = ? AND book_hash = ?
+		   AND deleted_at IS NULL
+		   AND json_extract(data, '$.uploaded_at') IS NULL`,
+		isoNow, isoNow, isoNow, nowMs, isoNow, userID, bookHash)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // bookFieldLWW lists (timestamp field, value field) pairs that are merged on
 // their own updated_at timestamp when the incoming row loses at the row level.
 // pinned_at travels on the metadata clock: pin/unpin bumps metadataUpdatedAt,
@@ -105,6 +157,11 @@ var bookFieldLWW = [][2]string{
 	{"cover_updated_at", "cover_hash"},
 	{"metadata_updated_at", "metadata"},
 	{"metadata_updated_at", "pinned_at"},
+	// Group membership rides its own clock (client issue #5911): a group edit
+	// does not bump updated_at, so without these pairs a peer's page-turn
+	// progress could overwrite another device's grouping.
+	{"group_updated_at", "group_id"},
+	{"group_updated_at", "group_name"},
 }
 
 // mergeBookFields grafts the newer of the client's mutable fields onto the

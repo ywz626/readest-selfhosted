@@ -39,6 +39,128 @@ func TestSqliteUpsertPullBook(t *testing.T) {
 	}
 }
 
+func TestSqlitePragmasApplyToEveryConnection(t *testing.T) {
+	// busy_timeout is per-connection: it has to ride on the DSN, otherwise only
+	// the connection that ran the one-off PRAGMA has it and a burst of pushes
+	// from several devices fails with SQLITE_BUSY (see NewSqliteStore).
+	path := filepath.Join(t.TempDir(), "test.db")
+	dsn := withSqlitePragmas(path, "busy_timeout(30000)", "journal_mode(WAL)")
+	if dsn == path {
+		t.Fatal("withSqlitePragmas did not append anything")
+	}
+	for i := 0; i < 2; i++ { // two independent pools == two fresh connections
+		db, err := sql.Open("sqlite", dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var timeout int
+		if err := db.QueryRow(`PRAGMA busy_timeout`).Scan(&timeout); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+		db.Close()
+		if timeout != 30000 {
+			t.Fatalf("connection %d busy_timeout = %d, want 30000", i, timeout)
+		}
+	}
+}
+
+func TestSqliteStampBookUploaded(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := int64(1000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &now, SyncedAt: "t1",
+		Data: []byte(`{"book_hash":"h1","updated_at":"1970-01-01T00:00:01Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const iso = "2024-05-01T00:00:00Z"
+	stamped, err := s.StampBookUploaded(ctx, "owner", "h1", iso, 1714521600000)
+	if err != nil || !stamped {
+		t.Fatalf("first stamp: stamped=%v err=%v", stamped, err)
+	}
+	got, err := s.GetBook(ctx, "owner", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Data, []byte(`"uploaded_at":"`+iso+`"`)) {
+		t.Fatalf("uploaded_at not stamped: %s", got.Data)
+	}
+	if got.UpdatedAt == nil || *got.UpdatedAt != 1714521600000 {
+		t.Fatalf("updated_at column = %v", got.UpdatedAt)
+	}
+	// Idempotent: the marker must not move on every re-upload, or it would
+	// outrank a peer's later edit on the row-level clock.
+	stamped, err = s.StampBookUploaded(ctx, "owner", "h1", "2030-01-01T00:00:00Z", 2000000000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped {
+		t.Fatal("second stamp should be a no-op")
+	}
+	// A tombstoned row is never stamped.
+	deleted := int64(2000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h2", UserID: "owner", BookHash: "h2", UpdatedAt: &deleted, DeletedAt: &deleted,
+		SyncedAt: "t2", Data: []byte(`{"book_hash":"h2","deleted_at":"1970-01-01T00:00:02Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stamped, err = s.StampBookUploaded(ctx, "owner", "h2", iso, 1714521600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped {
+		t.Fatal("deleted row must not be stamped")
+	}
+}
+
+func TestSqliteTombstoneSurvivesProgressOnlyPush(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	deletedAt := int64(2000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &deletedAt, DeletedAt: &deletedAt,
+		SyncedAt: "t1",
+		Data:     []byte(`{"book_hash":"h1","deleted_at":"1970-01-01T00:00:02Z","updated_at":"1970-01-01T00:00:02Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A peer that has not pulled the deletion reads a page afterwards: its
+	// updated_at is newer than the tombstone and nothing else changed.
+	newer := int64(3000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &newer, SyncedAt: "t2",
+		Data: []byte(`{"book_hash":"h1","progress":[3,100],"updated_at":"1970-01-01T00:00:03Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetBook(ctx, "owner", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DeletedAt == nil {
+		t.Fatalf("progress-only push resurrected the book: %s", got.Data)
+	}
+
+	// An explicit restore still wins.
+	restored := int64(4000)
+	if err := s.UpsertBook(ctx, BookRow{
+		ID: "h1", UserID: "owner", BookHash: "h1", UpdatedAt: &restored, SyncedAt: "t3",
+		Data: []byte(`{"book_hash":"h1","restored_at":"1970-01-01T00:00:04Z","updated_at":"1970-01-01T00:00:04Z"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetBook(ctx, "owner", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DeletedAt != nil {
+		t.Fatalf("explicit restore was blocked: %s", got.Data)
+	}
+}
+
 func TestSqliteBookRowLevelLWW(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

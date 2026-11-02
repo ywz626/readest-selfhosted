@@ -26,6 +26,8 @@ const syncState = vi.hoisted(() => ({
   useSyncInited: true,
   syncedBooks: null as Book[] | null,
   syncBooks: vi.fn(async (_books?: Book[], _op?: string, _since?: number) => 0),
+  syncedConfigs: null as unknown[] | null,
+  syncConfigs: vi.fn(async (..._args: unknown[]) => {}),
   // Truthy so the auto-sync 'both' branch runs (it returns early on a 0 cursor).
   lastSyncedAtBooks: 1000,
 }));

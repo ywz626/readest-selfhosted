@@ -53,6 +53,7 @@ type pushedBook struct {
 	Author                 string          `json:"author"`
 	GroupID                string          `json:"groupId"`
 	GroupName              string          `json:"groupName"`
+	GroupUpdatedAt         *int64          `json:"groupUpdatedAt"`
 	Tags                   []string        `json:"tags"`
 	Progress               json.RawMessage `json:"progress"`
 	ReadingStatus          string          `json:"readingStatus"`
@@ -66,6 +67,11 @@ type pushedBook struct {
 	DeletedAt              *int64          `json:"deletedAt"`
 	UploadedAt             *int64          `json:"uploadedAt"`
 	PinnedAt               *int64          `json:"pinnedAt"`
+	// RestoredAt marks the user putting a deleted book back (re-import /
+	// re-upload clears deletedAt). The store only clears a tombstone when this
+	// is newer than the deletion — updated_at cannot be used for that, it is
+	// bumped by page turns and uploads too.
+	RestoredAt *int64 `json:"restoredAt"`
 }
 
 // dbBook is the DB-shaped book record returned on pull; the client parses it
@@ -80,6 +86,7 @@ type dbBook struct {
 	Author                 string          `json:"author"`
 	GroupID                string          `json:"group_id,omitempty"`
 	GroupName              string          `json:"group_name,omitempty"`
+	GroupUpdatedAt         *string         `json:"group_updated_at,omitempty"`
 	Tags                   []string        `json:"tags,omitempty"`
 	Progress               json.RawMessage `json:"progress,omitempty"`
 	ReadingStatus          string          `json:"reading_status,omitempty"`
@@ -93,6 +100,7 @@ type dbBook struct {
 	DeletedAt              *string         `json:"deleted_at,omitempty"`
 	UploadedAt             *string         `json:"uploaded_at,omitempty"`
 	PinnedAt               *string         `json:"pinned_at,omitempty"`
+	RestoredAt             *string         `json:"restored_at,omitempty"`
 	SyncedAt               string          `json:"synced_at"`
 }
 
@@ -115,6 +123,7 @@ func bookToDB(p *pushedBook, uid, syncedAt string) *dbBook {
 		Author:                 sanitize(p.Author),
 		GroupID:                p.GroupID,
 		GroupName:              sanitize(p.GroupName),
+		GroupUpdatedAt:         epochMsToISO(p.GroupUpdatedAt),
 		Tags:                   p.Tags,
 		Progress:               p.Progress,
 		ReadingStatus:          p.ReadingStatus,
@@ -128,6 +137,7 @@ func bookToDB(p *pushedBook, uid, syncedAt string) *dbBook {
 		DeletedAt:              epochMsToISO(p.DeletedAt),
 		UploadedAt:             epochMsToISO(p.UploadedAt),
 		PinnedAt:               epochMsToISO(p.PinnedAt),
+		RestoredAt:             epochMsToISO(p.RestoredAt),
 		SyncedAt:               syncedAt,
 	}
 }

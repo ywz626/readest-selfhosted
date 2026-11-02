@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Book } from '@/types/book';
+import { Book, BookConfig } from '@/types/book';
 import { useSync } from '@/hooks/useSync';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
@@ -19,6 +19,7 @@ import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { ensureFeedBookCover } from '@/services/rss/feedBook';
 import { fetchAbsBookCover } from '@/services/audiobookshelf/librarySync';
 import { runFileLibrarySyncPass } from '@/services/sync/file/runLibrarySync';
+import { applySyncedConfigsToLocal } from '@/services/sync/applySyncedConfigs';
 import {
   pickFresherReadingStatus,
   needsCoverRefresh,
@@ -34,7 +35,8 @@ export const useBooksSync = () => {
   const { envConfig, appService } = useEnv();
   const { library, isSyncing, libraryLoaded } = useLibraryStore();
   const { setLibrary, setIsSyncing, setSyncProgress } = useLibraryStore();
-  const { useSyncInited, syncedBooks, syncBooks, lastSyncedAtBooks } = useSync();
+  const { useSyncInited, syncedBooks, syncedConfigs, syncBooks, syncConfigs, lastSyncedAtBooks } =
+    useSync();
   const isPullingRef = useRef(false);
   // A library change that lands while a sync is in flight must not be lost.
   // The post-import chain (push, pull, follow-up pull) runs for seconds and a
@@ -86,6 +88,73 @@ export const useBooksSync = () => {
     };
   }, [user, lastSyncedAtBooks]);
 
+  // Reading progress rides its own channel (`configs`), pulled until now only by
+  // the reader on book open. A library-level sync therefore moved book rows (the
+  // shelf percentage) but never a position to disk: syncing, going offline and
+  // opening a book resumed at the stale local position, and only a sync *inside*
+  // the reader — which needs the network the user no longer has — fixed it.
+  const pullProgress = useCallback(async () => {
+    await syncConfigs([], undefined, undefined, 'pull');
+  }, [syncConfigs]);
+
+  // Records of the last progress pull, merged into each book's config.json once
+  // its book row is in the library (a freshly pulled book can land after the
+  // configs arrive — updateLibrary inserts them in batches).
+  const pendingConfigsRef = useRef<BookConfig[] | null>(null);
+  const applyConfigsStateRef = useRef({ running: false, rerun: false });
+
+  const applySyncedConfigs = useCallback(async () => {
+    const state = applyConfigsStateRef.current;
+    if (state.running) {
+      // A library write landed mid-apply; re-run once it settles so a book that
+      // only just appeared still gets its position.
+      state.rerun = true;
+      return;
+    }
+    const configs = pendingConfigsRef.current;
+    if (!configs?.length) return;
+    state.running = true;
+    try {
+      const { pending } = await applySyncedConfigsToLocal({
+        envConfig,
+        settings: useSettingsStore.getState().settings,
+        configs,
+      });
+      pendingConfigsRef.current = configs.filter(
+        (config) => !!config.bookHash && pending.has(config.bookHash),
+      );
+    } catch (error) {
+      console.warn('Failed to apply synced reading progress:', error);
+      // Keep the pulled configs: `pullChanges` has ALREADY advanced
+      // settings.lastSyncedAtConfigs past them (it happens inside the pull,
+      // before this apply runs), so dropping them here loses that progress for
+      // good — the next pull starts after them and this device keeps resuming
+      // at its stale position. The `library` effect above retries them on the
+      // next library change, and a book with no library row stays pending
+      // either way.
+    } finally {
+      state.running = false;
+      if (state.rerun) {
+        state.rerun = false;
+        void applySyncedConfigs();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envConfig]);
+
+  useEffect(() => {
+    if (!syncedConfigs?.length) return;
+    pendingConfigsRef.current = syncedConfigs;
+    void applySyncedConfigs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncedConfigs]);
+
+  useEffect(() => {
+    if (!libraryLoaded || !pendingConfigsRef.current?.length) return;
+    void applySyncedConfigs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [library, libraryLoaded]);
+
   const pullLibrary = useCallback(
     async (fullRefresh = false, verbose = false) => {
       // Providers are independently selectable (#5062): an enabled file
@@ -129,6 +198,9 @@ export const useBooksSync = () => {
           const library = useLibraryStore.getState().library;
           const since = (libraryLoaded && library.length === 0) || fullRefresh ? 0 : undefined;
           nativeSynced = (await syncBooks([], 'pull', since)) ?? 0;
+          // Progress is its own channel: without this the pull stops at book
+          // rows and an offline open resumes from the stale local position.
+          await pullProgress();
         }
 
         if (verbose) {
@@ -148,7 +220,7 @@ export const useBooksSync = () => {
         releaseSyncLock();
       }
     },
-    [_, user, libraryLoaded, syncBooks, envConfig, releaseSyncLock],
+    [_, user, libraryLoaded, syncBooks, envConfig, releaseSyncLock, pullProgress],
   );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,6 +243,9 @@ export const useBooksSync = () => {
         isPullingRef.current = true;
         try {
           await syncBooks(newBooks.books, 'both');
+          // Auto sync must land progress on disk too, or a device that was
+          // "synced" while online still resumes offline at the stale position.
+          await pullProgress();
         } finally {
           releaseSyncLock();
         }
@@ -178,7 +253,7 @@ export const useBooksSync = () => {
       SYNC_BOOKS_INTERVAL_SEC * 1000,
       { emitLast: true },
     ),
-    [syncBooks],
+    [syncBooks, pullProgress],
   );
 
   useEffect(() => {

@@ -25,6 +25,9 @@ docker/.env
 hs_err_pid*.log
 replay_pid*.log
 
+# local build/run leftovers
+apps/readest-app/build.pid
+
 # production
 /build
 

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"readestsync/internal/middleware"
 )
@@ -70,10 +72,56 @@ func (h *StorageHandler) BlobPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"put failed","code":"SERVER"}`, http.StatusInternalServerError)
 		return
 	}
+	// Peers gate book adoption on the row's uploaded_at. Some client builds
+	// finish the upload but never push that field, so the book silently never
+	// reaches the other devices; stamping it here makes the server the source
+	// of truth regardless of the client's push race.
+	//
+	// Detached context with a deadline: a client that disconnects right after
+	// sending the body cancels r.Context(), GetBook/UpsertBook then returned
+	// ctx.Canceled and the stamp — the entire point of this call — was skipped.
+	// The write is idempotent, so it must not depend on the client staying.
+	stampCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancel()
+	h.stampBookUpload(stampCtx, uid, key)
+
 	// Fold the new bytes into the cached quota measurement so consecutive
 	// uploads inside the cache window are checked against the real usage.
 	h.addCachedUsage(uid, r.ContentLength)
 	w.WriteHeader(http.StatusOK)
+}
+
+// stampBookUpload sets uploaded_at/synced_at on <uid>/Readest/Books/<hash>/<file>
+// uploads when the row has not been stamped yet. Covers and sidecar JSON files
+// do not mark a book as uploaded.
+func (h *StorageHandler) stampBookUpload(ctx context.Context, uid, key string) {
+	hash, ok := bookUploadHash(uid, key)
+	if !ok {
+		return
+	}
+	now := time.Now().UTC()
+	if _, err := h.ms.StampBookUploaded(ctx, uid, hash, now.Format(time.RFC3339), now.UnixMilli()); err != nil {
+		log.Printf("stamp uploaded_at for %s/%s failed: %v", uid, hash, err)
+	}
+}
+
+// bookUploadHash reports the book hash of a key that carries the book's own
+// bytes. Covers and sidecar files never mark a book as uploaded: a device that
+// only fetched a cover must not look like it owns the content.
+func bookUploadHash(uid, key string) (string, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) != 5 || parts[0] != uid || parts[1] != "Readest" || parts[2] != "Books" {
+		return "", false
+	}
+	hash, name := parts[3], parts[4]
+	switch name {
+	case "cover.png", "config.json", "nav.json":
+		return "", false
+	}
+	if strings.HasPrefix(name, "search.db") {
+		return "", false
+	}
+	return hash, true
 }
 
 // parseRangeHeader parses a single "bytes=" Range header into a start offset
