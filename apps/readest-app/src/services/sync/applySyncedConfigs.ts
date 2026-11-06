@@ -3,7 +3,7 @@ import type { SystemSettings } from '@/types/settings';
 import type { EnvConfigType } from '@/services/environment';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useReaderStore } from '@/store/readerStore';
-import { compareCfi, isMalformedLocationCfi } from '@/utils/cfi';
+import { isMalformedLocationCfi } from '@/utils/cfi';
 
 /**
  * Library-level convergence of the reading-progress channel.
@@ -26,7 +26,7 @@ import { compareCfi, isMalformedLocationCfi } from '@/utils/cfi';
 const APPLY_CONCURRENCY = 4;
 
 /**
- * A malformed CFI is discarded, not compared: `isMalformedLocationCfi` is the
+ * A malformed CFI is discarded, not persisted: `isMalformedLocationCfi` is the
  * same guard the reader applies to a synced location before it moves the view.
  */
 const sanitizeLocation = (location: string | undefined): string =>
@@ -53,40 +53,28 @@ export const mergeSyncedConfig = (local: BookConfig, remote: BookConfig): BookCo
   const remoteAt = remote.updatedAt ?? 0;
   const localAt = local.updatedAt ?? 0;
 
-  // Reading progress merges by POSITION, not by clock — the exact rule
-  // useProgressSync applies when a book is opened (CFI.compare, furthest wins).
-  // The clock is a liar here in the most ordinary usage: read a few pages on
-  // this device AFTER the peer pushed a further position and the local record
-  // is NEWER while sitting EARLIER. Last-writer-wins then keeps the earlier
-  // position, which is precisely "synced, went offline, still the old page".
-  // The trade-off is symmetric and deliberate: a reader who rewinds HERE is
-  // pulled forward again by the peer's further position, exactly as the
-  // reader's own pull would do on open. A deliberate rewind needs its own
-  // signal (a reset stamp); a wall clock cannot express it.
-  const cmp = localLocation && remoteLocation ? compareCfi(localLocation, remoteLocation) : null;
-  const remoteIsAhead = cmp !== null ? cmp < 0 : !localHasPosition || remoteAt > localAt;
-  // Equal positions gain nothing, and a write would only churn the clock.
-  if (!remoteIsAhead) return null;
-
+  // A local config that never had a position is stamped with "now" by
+  // `deserializeConfig` (a missing `updatedAt` defaults to Date.now()), so a
+  // pure clock comparison would ignore the remote forever on a book this device
+  // has never read. An absent position always loses.
+  if (localHasPosition && remoteAt <= localAt) return null;
+  // Deliberately time-based, unlike the reader's own pull: `useProgressSync`
+  // only moves when the remote CFI is AHEAD (CFI.compare) because it is moving
+  // a live view. Here "the last device the user actually read on wins" is the
+  // point — that is what an offline resume has to land on, and a deliberate
+  // rewind on this device must not be dragged forward by a peer's older record.
   return {
     ...local,
     // A location without an XPointer means the pushing device could not resolve
     // one; drop the stale local XPointer in that case so the previous position
     // can't win the next merge (#7041). The local location is carried over only
     // when it survived the sanitizer: writing back a CFI this merge just
-    // rejected resurrects the "resumes at page one" state the guard exists to
-    // prevent, and pairing a local CFI with a remote XPointer would describe
-    // two different positions in one record.
+    // rejected would let a corrupt local location resume at page one again.
     location: remoteLocation || localLocation || undefined,
     xpointer: remoteLocation ? (remote.xpointer ?? '') : (remote.xpointer ?? local.xpointer),
     progress: remote.progress ?? local.progress,
     rsvpPosition: remote.rsvpPosition ?? local.rsvpPosition,
-    // Keep the LATER clock: this device now holds the further position, so its
-    // next push must out-rank the record it replaces instead of being dropped as
-    // stale — otherwise the adopted position never reaches the other peers.
-    // Capped at `now` so a fast-running device clock cannot pin an earlier
-    // position forever by re-stamping a future timestamp on every merge.
-    updatedAt: Math.max(remoteAt, Math.min(localAt, Date.now())),
+    updatedAt: remoteAt || localAt,
   };
 };
 

@@ -205,7 +205,8 @@ export function useSync(bookKey?: string) {
         // them (its per-book cursor is older), which is exactly why a library
         // sync looks broken while opening the book online fixes it. Pull with a
         // day of overlap so a skewed or overshot cursor cannot skip a record;
-        // the position-based merge makes re-pulled rows a no-op.
+        // re-pulled rows are a no-op, the merge rejects one whose clock is not
+        // newer than the local one.
         const requestSince =
           type === 'configs' && !bookId ? Math.max(0, since - ONE_DAY_IN_MS) : since;
         const result = await syncClient.pullChanges(requestSince, type, bookId, metaHash);

@@ -16,10 +16,10 @@ import type { SystemSettings } from '@/types/settings';
  * Only the transport (SyncClient), the platform service and the auth/translation
  * contexts are mocked. Everything else is the production code the user runs.
  *
- * The position-ordering of the MERGE itself (CFI.compare, furthest wins) is
- * unit-tested in applySyncedConfigs.test.ts with a CFI stand-in — this file
- * exists to prove the full pipeline lands a pulled config on disk, which a
- * broken effect/state hand-off would not show.
+ * The clock arbitration of the MERGE itself is unit-tested in
+ * applySyncedConfigs.test.ts — this file exists to prove the full pipeline
+ * lands a pulled config on disk, which a broken effect/state hand-off would
+ * not show.
  */
 
 const FAR = 'epubcfi(/6/40!/4/2/1:0)';

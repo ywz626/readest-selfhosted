@@ -132,25 +132,6 @@ export function isMalformedLocationCfi(cfi: string): boolean {
   }
 }
 
-/**
- * Compare two reading positions of the SAME book. Equal `book_hash` means the
- * same bytes, so the two CFIs live in the same space and are directly
- * comparable — the same rule `useProgressSync` applies when a book is opened.
- *
- * Returns null when the pair cannot be compared (a non-CFI location such as a
- * KOReader XPointer, or one that fails to parse) so the caller can fall back to
- * its clock instead of dropping the record. Kept next to
- * `isMalformedLocationCfi` so the guard and the ordering always share one CFI
- * implementation.
- */
-export function compareCfi(a: string, b: string): number | null {
-  try {
-    return CFI.compare(a, b);
-  } catch {
-    return null;
-  }
-}
-
 export function getIndexFromCfi(cfi: string): number | null {
   try {
     const parts = CFI.parse(cfi);

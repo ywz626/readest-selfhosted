@@ -8,32 +8,16 @@ import { useReaderStore } from '@/store/readerStore';
 
 /**
  * vitest.config.mts stubs every `foliate-js/*` subpath to an empty module, so
- * the real CFI implementation — and with it `compareCfi` and
- * `isMalformedLocationCfi`, which is built on `CFI.parse` — is a no-op here.
- * The merge under test orders positions with `compareCfi` and rejects
- * degenerate shapes with `isMalformedLocationCfi`, so these two stand-ins
- * supply the ordering plus the guard. Anything that is not an `epubcfi(...)`
- * reports "incomparable" (null), exactly like the real `compareCfi`, so the
- * caller's fallback to the timestamp clock stays covered too.
+ * the real CFI implementation — and with it `isMalformedLocationCfi`, which is
+ * built on `CFI.parse` — is a no-op here. The merge under test rejects
+ * degenerate shapes with `isMalformedLocationCfi`, so this stand-in supplies
+ * the guard: the empty-start (`,,`) / empty-end (`,)`) range shapes the
+ * cfi-inert skip-link bug left behind.
  */
 vi.mock('@/utils/cfi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/cfi')>();
-  const spineIndex = (cfi: string): number => {
-    const match = /^epubcfi\(\/6\/(\d+)!/.exec(cfi);
-    if (!match) throw new Error(`not a comparable CFI: ${cfi}`);
-    return Number(match[1]);
-  };
   return {
     ...actual,
-    compareCfi: (a: string, b: string) => {
-      try {
-        return spineIndex(a) - spineIndex(b);
-      } catch {
-        return null;
-      }
-    },
-    // The empty-start / empty-end range shapes the cfi-inert skip-link bug left
-    // behind: `,,` for an empty start, `,)` for an empty end.
     isMalformedLocationCfi: (cfi: string) => /,\s*,/.test(cfi) || /,\s*\)/.test(cfi),
   };
 });
@@ -145,45 +129,42 @@ describe('mergeSyncedConfig', () => {
       { updatedAt: 200, location: 'remote-location', progress: [10, 50] },
     );
     expect(merged?.location).toBe('remote-location');
-    // The later of the two clocks is kept so this device's next push of the
-    // adopted position wins the server's last-writer-wins.
-    expect(merged?.updatedAt).toBe(localAt);
+    expect(merged?.updatedAt).toBe(200);
   });
 
-  it('adopts a further remote position even when the local record is newer', () => {
-    // The reported bug. Read a few pages on THIS device after the peer pushed a
-    // further position: the local clock is NEWER, the local position EARLIER.
-    // A time-based merge keeps the earlier one — "synced, went offline, still
-    // the old page" — while the reader's own pull (CFI.compare, furthest wins)
-    // moves forward as soon as the network is back. Both must agree.
+  it('keeps the local position when its clock is newer even if the remote is further', () => {
+    // The deliberate trade-off of clock arbitration: "the last device the user
+    // actually read on wins", so a rewind made on this device must not be
+    // dragged forward by a peer's older record. The flip side is that a peer
+    // whose clock lags behind this one is ignored until it reads again.
     const merged = mergeSyncedConfig(
       { updatedAt: 2000, location: 'epubcfi(/6/2!/4/2/1:0)', progress: [10, 300] },
       { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)', progress: [120, 300] },
     );
-    expect(merged?.location).toBe('epubcfi(/6/40!/4/2/1:0)');
-    expect(merged?.progress).toEqual([120, 300]);
-    // The adopted position must out-rank the stale local clock.
+    expect(merged).toBeNull();
+  });
+
+  it('writes nothing when both clocks tie', () => {
+    const merged = mergeSyncedConfig(
+      { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)' },
+      { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)' },
+    );
+    expect(merged).toBeNull();
+  });
+
+  it('adopts the remote position when its clock is newer even if it is behind', () => {
+    // Clock, not distance, decides — the record that moved the reader backwards.
+    const merged = mergeSyncedConfig(
+      { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)' },
+      { updatedAt: 2000, location: 'epubcfi(/6/2!/4/2/1:0)', progress: [10, 300] },
+    );
+    expect(merged?.location).toBe('epubcfi(/6/2!/4/2/1:0)');
     expect(merged?.updatedAt).toBe(2000);
   });
 
-  it('keeps the further local position even when the remote record is newer', () => {
-    const merged = mergeSyncedConfig(
-      { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)' },
-      { updatedAt: 2000, location: 'epubcfi(/6/2!/4/2/1:0)' },
-    );
-    expect(merged).toBeNull();
-  });
-
-  it('writes nothing when both sides hold the same position', () => {
-    const merged = mergeSyncedConfig(
-      { updatedAt: 1000, location: 'epubcfi(/6/40!/4/2/1:0)' },
-      { updatedAt: 2000, location: 'epubcfi(/6/40!/4/2/1:0)' },
-    );
-    expect(merged).toBeNull();
-  });
-
-  it('falls back to the clock when the positions cannot be compared', () => {
-    // An xpointer-only record (KOReader) carries no CFI to compare against.
+  it('drops a remote record with an older clock even when it carries an xpointer', () => {
+    // An xpointer-only record (KOReader) carries no CFI at all: nothing about
+    // its shape rescues it from the clock.
     const merged = mergeSyncedConfig(
       { updatedAt: 2000, location: 'epubcfi(/6/2!/4/2/1:0)' },
       { updatedAt: 1000, xpointer: '/body/DocFragment[9]' },
