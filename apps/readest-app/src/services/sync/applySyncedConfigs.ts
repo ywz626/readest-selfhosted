@@ -3,7 +3,7 @@ import type { SystemSettings } from '@/types/settings';
 import type { EnvConfigType } from '@/services/environment';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useReaderStore } from '@/store/readerStore';
-import { isMalformedLocationCfi } from '@/utils/cfi';
+import { compareCfi, isMalformedLocationCfi } from '@/utils/cfi';
 
 /**
  * Library-level convergence of the reading-progress channel.
@@ -22,11 +22,15 @@ import { isMalformedLocationCfi } from '@/utils/cfi';
  * position".
  */
 
-const hasPosition = (config: BookConfig | null | undefined): boolean =>
-  !!config?.location || !!config?.xpointer;
-
 /** How many books' config.json files are loaded/merged in parallel. */
 const APPLY_CONCURRENCY = 4;
+
+/**
+ * A malformed CFI is discarded, not compared: `isMalformedLocationCfi` is the
+ * same guard the reader applies to a synced location before it moves the view.
+ */
+const sanitizeLocation = (location: string | undefined): string =>
+  location && !isMalformedLocationCfi(location) ? location : '';
 
 /**
  * Merge the reading state of a pulled config into the local one, or return null
@@ -38,40 +42,51 @@ const APPLY_CONCURRENCY = 4;
  * separate `notes` channel, so a progress pull must never clobber them.
  */
 export const mergeSyncedConfig = (local: BookConfig, remote: BookConfig): BookConfig | null => {
+  const remoteLocation = sanitizeLocation(remote.location);
+  const localLocation = sanitizeLocation(local.location);
+  const remoteHasPosition = !!remoteLocation || !!remote.xpointer;
+  const localHasPosition = !!localLocation || !!local.xpointer;
   // A config pushed for view settings only carries no position: adopting it
-  // would just downgrade the local clock.
-  if (!hasPosition(remote)) return null;
-  // The reader drops a malformed synced CFI before applying it
-  // (useProgressSync.applyRemoteProgress, #5859) so it can neither move the
-  // reader nor be persisted. This path had no such guard, so a corrupt location
-  // an old client left in the cloud went straight to config.json and the next
-  // open resumed at page one.
-  const remoteLocation =
-    remote.location && !isMalformedLocationCfi(remote.location) ? remote.location : '';
-  // Nothing left to apply once a malformed CFI is discarded and there is no
-  // XPointer that could still resolve.
-  if (!remoteLocation && !remote.xpointer) return null;
+  // would only churn the local clock.
+  if (!remoteHasPosition) return null;
+
   const remoteAt = remote.updatedAt ?? 0;
   const localAt = local.updatedAt ?? 0;
-  // A local config that never had a position is stamped with "now" by
-  // `deserializeConfig` (a missing `updatedAt` defaults to Date.now()), so a
-  // pure clock comparison would ignore the remote forever on a book this device
-  // has never read. An absent position always loses.
-  if (hasPosition(local) && remoteAt <= localAt) return null;
-  // Deliberately time-based, unlike the reader's own pull: `useProgressSync`
-  // only moves when the remote CFI is AHEAD (CFI.compare) because it is moving
-  // a live view. Here "the last device the user actually read on wins" is the
-  // point — that is what an offline resume has to land on.
+
+  // Reading progress merges by POSITION, not by clock — the exact rule
+  // useProgressSync applies when a book is opened (CFI.compare, furthest wins).
+  // The clock is a liar here in the most ordinary usage: read a few pages on
+  // this device AFTER the peer pushed a further position and the local record
+  // is NEWER while sitting EARLIER. Last-writer-wins then keeps the earlier
+  // position, which is precisely "synced, went offline, still the old page".
+  // The trade-off is symmetric and deliberate: a reader who rewinds HERE is
+  // pulled forward again by the peer's further position, exactly as the
+  // reader's own pull would do on open. A deliberate rewind needs its own
+  // signal (a reset stamp); a wall clock cannot express it.
+  const cmp = localLocation && remoteLocation ? compareCfi(localLocation, remoteLocation) : null;
+  const remoteIsAhead = cmp !== null ? cmp < 0 : !localHasPosition || remoteAt > localAt;
+  // Equal positions gain nothing, and a write would only churn the clock.
+  if (!remoteIsAhead) return null;
+
   return {
     ...local,
     // A location without an XPointer means the pushing device could not resolve
     // one; drop the stale local XPointer in that case so the previous position
-    // can't win the next merge (#7041).
-    location: remoteLocation || local.location,
+    // can't win the next merge (#7041). The local location is carried over only
+    // when it survived the sanitizer: writing back a CFI this merge just
+    // rejected resurrects the "resumes at page one" state the guard exists to
+    // prevent, and pairing a local CFI with a remote XPointer would describe
+    // two different positions in one record.
+    location: remoteLocation || localLocation || undefined,
     xpointer: remoteLocation ? (remote.xpointer ?? '') : (remote.xpointer ?? local.xpointer),
     progress: remote.progress ?? local.progress,
     rsvpPosition: remote.rsvpPosition ?? local.rsvpPosition,
-    updatedAt: remoteAt || localAt,
+    // Keep the LATER clock: this device now holds the further position, so its
+    // next push must out-rank the record it replaces instead of being dropped as
+    // stale — otherwise the adopted position never reaches the other peers.
+    // Capped at `now` so a fast-running device clock cannot pin an earlier
+    // position forever by re-stamping a future timestamp on every merge.
+    updatedAt: Math.max(remoteAt, Math.min(localAt, Date.now())),
   };
 };
 
@@ -160,5 +175,13 @@ export const applySyncedConfigsToLocal = async ({
       }),
     );
   }
+  // One line per library sync: the only way to tell a pull that found nothing
+  // (cursor already past the record) from a merge that deliberately kept the
+  // local position, which are indistinguishable from the outside.
+  console.info('[sync] reading progress pull', {
+    pulled: configs.length,
+    applied,
+    pending: pending.size,
+  });
   return { applied, pending };
 };

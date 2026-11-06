@@ -102,6 +102,10 @@ export const useBooksSync = () => {
   // configs arrive — updateLibrary inserts them in batches).
   const pendingConfigsRef = useRef<BookConfig[] | null>(null);
   const applyConfigsStateRef = useRef({ running: false, rerun: false });
+  // Set while a MANUAL (verbose) sync is in flight so the apply below can tell
+  // the user the reading progress actually landed — the one signal that a
+  // library sync is not just book rows (the thing the bug was about).
+  const reportProgressRef = useRef(false);
 
   const applySyncedConfigs = useCallback(async () => {
     const state = applyConfigsStateRef.current;
@@ -115,11 +119,15 @@ export const useBooksSync = () => {
     if (!configs?.length) return;
     state.running = true;
     try {
-      const { pending } = await applySyncedConfigsToLocal({
+      const { applied, pending } = await applySyncedConfigsToLocal({
         envConfig,
         settings: useSettingsStore.getState().settings,
         configs,
       });
+      if (applied > 0 && reportProgressRef.current) {
+        reportProgressRef.current = false;
+        eventDispatcher.dispatch('toast', { type: 'info', message: _('Reading Progress Synced') });
+      }
       pendingConfigsRef.current = configs.filter(
         (config) => !!config.bookHash && pending.has(config.bookHash),
       );
@@ -200,6 +208,9 @@ export const useBooksSync = () => {
           nativeSynced = (await syncBooks([], 'pull', since)) ?? 0;
           // Progress is its own channel: without this the pull stops at book
           // rows and an offline open resumes from the stale local position.
+          // Report it only for a user-triggered sync (verbose), not the mount /
+          // auto pull.
+          if (verbose) reportProgressRef.current = true;
           await pullProgress();
         }
 

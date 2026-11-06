@@ -197,7 +197,18 @@ export function useSync(bookKey?: string) {
           },
         );
       } else {
-        const result = await syncClient.pullChanges(since, type, bookId, metaHash);
+        // The configs cursor is a CLIENT clock — each device stamps its own
+        // `updated_at` — unlike the books cursor, which is server-stamped
+        // (`synced_at`). A peer whose clock runs behind this device's pushes
+        // configs that land "in the past" relative to this cursor, so a strict
+        // `since` hides them forever. The reader's per-book pull still sees
+        // them (its per-book cursor is older), which is exactly why a library
+        // sync looks broken while opening the book online fixes it. Pull with a
+        // day of overlap so a skewed or overshot cursor cannot skip a record;
+        // the position-based merge makes re-pulled rows a no-op.
+        const requestSince =
+          type === 'configs' && !bookId ? Math.max(0, since - ONE_DAY_IN_MS) : since;
+        const result = await syncClient.pullChanges(requestSince, type, bookId, metaHash);
         records = (result as unknown as Record<string, BookDataRecord[] | null | undefined>)[type];
       }
       setSyncResult({ ...syncResult, [type]: records });
