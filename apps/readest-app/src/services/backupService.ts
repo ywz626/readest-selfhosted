@@ -61,6 +61,10 @@ export const BACKUP_SETTINGS_BLACKLIST = [
   'lastSyncedAtConfigs',
   'lastSyncedAtNotes',
   'lastSyncedAtReplicas',
+  // Measured against THIS device's clock and ONE endpoint; another device's
+  // value is wrong, and the scope gates whether the offset is applied at all.
+  'serverTimeOffsetMs',
+  'serverTimeOffsetScope',
   'readwise.lastSyncedAt',
   'hardcover.lastSyncedAt',
   'pagebound.lastSyncedAt',
@@ -214,16 +218,26 @@ const deepMerge = (
 
 /**
  * Merge a restored settings snapshot onto the current device settings.
- * Blacklisted fields are absent from the snapshot, so the current
- * device's values for them are preserved. Neither input is mutated.
+ * Blacklisted fields are stripped from the snapshot on export AND filtered
+ * out here on import, so a crafted or older zip cannot override device-local
+ * state. The current device's values for them are preserved. Neither input
+ * is mutated.
  */
 export function mergeRestoredSettings(
   current: SystemSettings,
   backup: Partial<SystemSettings>,
 ): SystemSettings {
+  // Export-time stripping only protects backups THIS build produced. A zip a
+  // user is handed can carry anything, and deepMerge would let those keys win.
+  const safeBackup: Record<string, unknown> = isPlainObject(backup)
+    ? (structuredClone(backup) as Record<string, unknown>)
+    : {};
+  for (const path of BACKUP_SETTINGS_BLACKLIST) {
+    deletePath(safeBackup, path);
+  }
   const merged = deepMerge(
     current as unknown as Record<string, unknown>,
-    backup as unknown as Record<string, unknown>,
+    safeBackup,
   ) as unknown as SystemSettings;
   if (current.bookshelves || backup.bookshelves)
     merged.bookshelves = mergeBookshelfStates(current.bookshelves, backup.bookshelves);

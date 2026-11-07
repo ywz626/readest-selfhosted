@@ -14,6 +14,7 @@ import { createTextBookFile } from '@/utils/txt';
 import { parseAnnotationDeepLink, parseDeviceLinkDeepLink } from '@/utils/deeplink';
 import { parseShareDeepLink } from '@/utils/share';
 import { useTranslation } from './useTranslation';
+import { syncNow } from '@/services/sync/clock';
 
 interface ClipOptions {
   groupId?: string;
@@ -123,7 +124,7 @@ export function useClipUrlIngress() {
       if (options.groupName) ingested.groupName = options.groupName;
       if (options.groupId || options.groupName) {
         // Group membership merges on its own clock (#5911).
-        ingested.updatedAt = Date.now();
+        ingested.updatedAt = syncNow();
         ingested.groupUpdatedAt = ingested.updatedAt;
       }
       await useLibraryStore.getState().updateBooks(envConfig, [ingested]);

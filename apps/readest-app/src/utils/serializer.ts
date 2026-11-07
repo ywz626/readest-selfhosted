@@ -6,6 +6,7 @@ import {
 } from '@/types/book';
 import { unifyAnnotations } from '@/utils/booknoteMigration';
 import { DEFAULT_NEARBY_WORDS, ensureSearchMode, modeToWholeWords } from '@/utils/searchConfig';
+import { syncNow } from '@/services/sync/clock';
 
 export const stampBookConfigSchema = <T extends Partial<BookConfig>>(config: T): T => {
   return { ...config, schemaVersion: BOOK_CONFIG_SCHEMA_VERSION };
@@ -88,7 +89,7 @@ export const deserializeConfig = (
     config.booknotes = unifyAnnotations(config.booknotes);
   }
   config.schemaVersion ??= BOOK_CONFIG_SCHEMA_VERSION;
-  config.updatedAt ??= Date.now();
+  config.updatedAt ??= syncNow();
   return config;
 };
 

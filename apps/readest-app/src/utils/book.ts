@@ -9,6 +9,7 @@ import {
   WritingMode,
 } from '@/types/book';
 import { SUPPORTED_LANGS } from '@/services/constants';
+import { syncNow } from '@/services/sync/clock';
 import { getLocale, getUserLang, makeSafeFilename } from './misc';
 import { getStorageType } from './storage';
 import { getDirFromLanguage } from './rtl';
@@ -330,7 +331,7 @@ export const setBookGroup = (
   book: Book,
   groupId: string | undefined,
   groupName: string | undefined,
-  now = Date.now(),
+  now = syncNow(),
 ) => {
   book.groupId = groupId;
   book.groupName = groupName;
@@ -402,7 +403,7 @@ export const getBookWithUpdatedMetadata = (
     // The metadata group merges on its own clock so a page turn elsewhere
     // (which dominates updatedAt) cannot clobber this edit (issue #5438), and
     // updatedAt stays put so the edit doesn't reorder Date Read (#6414).
-    metadataUpdatedAt: Date.now(),
+    metadataUpdatedAt: syncNow(),
   };
   const newCoverImageUrl = metadata.coverImageBlobUrl || metadata.coverImageUrl;
   if (newCoverImageUrl) {

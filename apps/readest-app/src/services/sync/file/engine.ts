@@ -646,8 +646,10 @@ export class FileSyncEngine {
 
     // Incremental cursor: a book needs a push only when its local copy is newer
     // than (or absent from) the shared library.json index. `book.updatedAt`
-    // bumps on every progress / notes / metadata save, so the index is a
-    // reliable per-book change marker. EVERY strategy uses it, 'send'
+    // bumps on a page turn and the field clocks (`metadataUpdatedAt`,
+    // `readingStatusUpdatedAt`, `groupUpdatedAt`, `notesUpdatedAt`) cover the
+    // edits that deliberately leave it alone, so the index is a reliable
+    // per-book change marker. EVERY strategy uses it, 'send'
     // included: before #5900 send never read the index, so it re-pushed every
     // config and re-probed every cover on every run — O(library) per sync,
     // which a large library cannot afford. A book whose local row has not
@@ -795,7 +797,13 @@ export class FileSyncEngine {
           // notes wouldn't propagate without re-walking every book. In full-sync
           // mode the push loop pulls each config, so we skip this to avoid a
           // duplicate GET.
-          if (!fullSync && bytesMayHaveMoved) {
+          //
+          // `bytesMayHaveMoved` is false for a notes-only edit (that clock
+          // deliberately does not touch the row's updatedAt), but the notes are
+          // still news and they live in config.json, so the config is pulled on
+          // its own clock. The cover is not: no bytes moved.
+          const remoteNotesNewer = (rb.notesUpdatedAt ?? 0) > (local.notesUpdatedAt ?? 0);
+          if (!fullSync && (bytesMayHaveMoved || remoteNotesNewer)) {
             try {
               const localConfig = (await this.store.loadConfig(merged)) ?? {
                 updatedAt: 0,
@@ -1141,7 +1149,15 @@ export class FileSyncEngine {
     // remote copy is missing per the index's uploaded-file record (`needsFilePush`)
     // — which catches the user enabling "Upload Book Files" only after the first
     // (config-only) sync (#4856) without a per-book probe once files are recorded.
-    const configChanged = (b: Book): boolean => fullSync || isLocalNewer(b);
+    // An annotation / bookmark edit deliberately leaves `updatedAt` alone (it is
+    // the cross-device progress clock), so `isLocalNewer` misses it and the peer
+    // would keep the pre-annotation config.json until the next page turn. The
+    // notes clock is the change signal for `booknotes`, which ride config.json.
+    const notesMovedLocally = (b: Book): boolean => {
+      const remote = remoteByHash.get(b.hash);
+      return !!remote && (b.notesUpdatedAt ?? 0) > (remote.notesUpdatedAt ?? 0);
+    };
+    const configChanged = (b: Book): boolean => fullSync || isLocalNewer(b) || notesMovedLocally(b);
     // Consult the merged state, not the caller's raw book: a book a peer just
     // tombstoned in this same run is now deletedAt in allBooksMap even though
     // the caller's array copy isn't — pushing it would re-upload a book we are

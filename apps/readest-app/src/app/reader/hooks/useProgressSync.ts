@@ -19,6 +19,7 @@ import { DEFAULT_BOOK_SEARCH_CONFIG, SYNC_PROGRESS_INTERVAL_SEC } from '@/servic
 import { getCFIFromXPointer, getXPointerFromCFI } from '@/utils/xcfi';
 import { isMalformedLocationCfi } from '@/utils/cfi';
 import { useWindowActiveChanged } from './useWindowActiveChanged';
+import { syncNow } from '@/services/sync/clock';
 
 // Backoff schedule for the first-pull retry on book open. After these
 // attempts the gate releases unconditionally so the user's progress can
@@ -468,7 +469,7 @@ export const useProgressSync = (bookKey: string) => {
           await saveConfig(
             envConfig,
             bookKey,
-            { ...config, viewSettings: updatedViewSettings, updatedAt: Date.now() },
+            { ...config, viewSettings: updatedViewSettings, updatedAt: syncNow() },
             settings,
           );
           // Refresh a live view so merged rules take effect immediately; a

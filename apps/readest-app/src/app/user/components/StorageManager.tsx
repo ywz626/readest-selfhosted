@@ -19,6 +19,7 @@ import {
 import { eventDispatcher } from '@/utils/event';
 import Spinner from '@/components/Spinner';
 import Alert from '@/components/Alert';
+import { syncNow } from '@/services/sync/clock';
 
 const StorageManager = () => {
   const _ = useTranslation();
@@ -208,7 +209,7 @@ const StorageManager = () => {
         .filter((book) => selectedBookHashes.has(book.hash))
         .forEach((book) => {
           book.uploadedAt = null;
-          book.updatedAt = Date.now();
+          book.updatedAt = syncNow();
         });
       setLibrary(library);
       appService.saveLibraryBooks(library);

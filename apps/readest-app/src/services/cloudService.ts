@@ -17,6 +17,7 @@ import {
 import { ClosableFile } from '@/utils/file';
 import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
+import { syncNow } from './sync/clock';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
 import { getAbsOfflineDir } from '@/utils/audiobook';
 
@@ -79,7 +80,7 @@ export async function deleteBook(
       // cloud deletion for purge, exactly as it does for the 'both' action.
       book.downloadedAt = null;
     } else {
-      book.deletedAt = Date.now();
+      book.deletedAt = syncNow();
       book.downloadedAt = null;
       book.coverDownloadedAt = null;
     }
@@ -233,8 +234,12 @@ export async function uploadBook(
 
   book.deletedAt = null;
   book.fileSyncDeletionRequestedAt = null;
-  book.updatedAt = Date.now();
-  book.uploadedAt = Date.now();
+  // `updatedAt` / `uploadedAt` are compared against server-stamped rows and a
+  // peer's record, so they go on the server's clock; the download markers below
+  // are device-local bookkeeping and stay on the wall clock.
+  const syncedAt = syncNow();
+  book.updatedAt = syncedAt;
+  book.uploadedAt = syncedAt;
   book.downloadedAt = Date.now();
   book.coverDownloadedAt = Date.now();
 }

@@ -50,6 +50,7 @@ import type {
 import { eventDispatcher } from '@/utils/event';
 import AudiobookChapterPicker, { formatAudiobookTimecode } from './AudiobookChapterPicker';
 import StepProgress from './AudiobookStepProgress';
+import { syncNow } from '@/services/sync/clock';
 
 type WizardStep = 'summary' | 'select' | 'abs' | 'anchor' | 'review';
 
@@ -204,7 +205,7 @@ const AudiobookPairingDialog = ({ bookKey, bookDoc, onClose }: AudiobookPairingD
       ...current,
       audiobook: nextAssociation,
       viewSettings,
-      updatedAt: Date.now(),
+      updatedAt: syncNow(),
     };
     await saveConfig(envConfig, bookKey, updatedConfig, settings);
     setConfig(bookKey, { audiobook: nextAssociation, viewSettings });

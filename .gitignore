@@ -76,6 +76,7 @@ result*
 
 # ide
 .codebuddy/
+.qoder/
 .idea/
 
 # vitest config build artifacts

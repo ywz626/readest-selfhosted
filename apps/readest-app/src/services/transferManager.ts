@@ -9,6 +9,7 @@ import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/util
 import { eventDispatcher } from '@/utils/event';
 import { isAbsOfflineCapable, isAudiobook } from '@/utils/audiobook';
 import { getTransferMessages } from './transferMessages';
+import { syncNow } from '@/services/sync/clock';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
 const RETRY_DELAY_BASE_MS = 2000;
@@ -627,7 +628,7 @@ class TransferManager {
 
     if (transfer.type === 'upload') {
       await this.appService!.uploadBook(book, progressHandler);
-      book.uploadedAt = Date.now();
+      book.uploadedAt = syncNow();
       await this.updateBook!(book);
     } else if (transfer.type === 'download') {
       await this.appService!.downloadBook(book, false, false, progressHandler);

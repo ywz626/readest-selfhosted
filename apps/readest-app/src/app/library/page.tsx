@@ -137,6 +137,7 @@ import DropIndicator from '@/components/DropIndicator';
 import SettingsDialog from '@/components/settings/SettingsDialog';
 import ModalPortal from '@/components/ModalPortal';
 import TransferQueuePanel from './components/TransferQueuePanel';
+import { syncNow } from '@/services/sync/clock';
 
 /** Skip tiny non-book artifacts during folder auto-scan (matches the manual import dialog default). */
 const AUTO_IMPORT_MIN_SIZE_BYTES = 20 * 1024;
@@ -1294,7 +1295,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             // The tombstone also bumps `updatedAt`, so it outranks the row's
             // own older page-turn progress in the whole-row sync merge — see
             // markBookDeleted for what broke without that (#6663).
-            markBookDeleted(book, Date.now(), deleteAction === 'purge');
+            markBookDeleted(book, syncNow(), deleteAction === 'purge');
           } else {
             // "Remove from Device Only" must never leave stale authorization
             // from an older delete/re-import cycle on the live row.

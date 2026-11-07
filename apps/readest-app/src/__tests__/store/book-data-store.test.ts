@@ -307,6 +307,38 @@ describe('bookDataStore', () => {
       expect(result).toBeUndefined();
     });
 
+    test('stamps the notes clock and leaves the progress clock alone', () => {
+      // `updatedAt` is the cross-device PROGRESS clock (`mergeSyncedConfig`, the
+      // cloud config LWW). Editing an annotation is not reading: stamping it
+      // here re-publishes whatever position the config holds as the newest
+      // record, and the peer's later position loses to it. The notes need their
+      // own clock so file sync still sees that the config changed.
+      const data = makeBookData('book1', { booknotes: [] });
+      useBookDataStore.setState({ booksData: { book1: data } });
+
+      const result = useBookDataStore
+        .getState()
+        .updateBooknotes('book1', [makeBookNote({ id: 'a' })]);
+
+      expect(result!.updatedAt).toBe(1000);
+      expect(result!.notesUpdatedAt).toBeGreaterThan(0);
+      expect(useBookDataStore.getState().getConfig('book1')!.updatedAt).toBe(1000);
+    });
+
+    test('advances the notes clock monotonically', () => {
+      // A clock already published ahead of the corrected one must never be
+      // lowered, or the peer keeps treating the old note set as newer.
+      const published = Date.now() + 60 * 60 * 1000;
+      const data = makeBookData('book1', { booknotes: [], notesUpdatedAt: published });
+      useBookDataStore.setState({ booksData: { book1: data } });
+
+      const result = useBookDataStore
+        .getState()
+        .updateBooknotes('book1', [makeBookNote({ id: 'b' })]);
+
+      expect(result!.notesUpdatedAt).toBeGreaterThan(published);
+    });
+
     test('extracts id from "id-suffix" key format', () => {
       const data = makeBookData('book1', { booknotes: [] });
       useBookDataStore.setState({ booksData: { book1: data } });
@@ -458,7 +490,7 @@ describe('bookDataStore', () => {
       expect(saveLibraryBooks).not.toHaveBeenCalled();
     });
 
-    test('refreshes config.updatedAt in the store with a fresh reference', async () => {
+    test('refreshes the store config with a new reference but keeps the progress clock', async () => {
       const saveBookConfig = vi.fn().mockResolvedValue(undefined);
       const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
       const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
@@ -474,7 +506,11 @@ describe('bookDataStore', () => {
       const after = useBookDataStore.getState().getConfig('h1');
       // New reference so Zustand change-detection fires for selector subscribers.
       expect(after).not.toBe(before);
-      expect(after!.updatedAt).toBeGreaterThan(1000);
+      // Saving is not reading. A save that did not turn a page must leave the
+      // cross-device clock alone, or the record re-published here outranks the
+      // peer the user actually read on and its newer position is rejected as
+      // "not newer" both in the cloud and in applySyncedConfigs.
+      expect(after!.updatedAt).toBe(1000);
     });
 
     test('refreshes the store config even when the caller passes a separate object', async () => {
@@ -488,10 +524,44 @@ describe('bookDataStore', () => {
       useBookDataStore.setState({ booksData: { h1: data } });
 
       // Caller passes a freshly-built config, not the shared store object.
-      const detachedConfig: BookConfig = { ...data.config! };
+      const detachedConfig: BookConfig = { ...data.config!, location: 'cfi-detached' };
       await useBookDataStore.getState().saveConfig(envConfig, 'h1', detachedConfig, FAKE_SETTINGS);
 
-      expect(useBookDataStore.getState().getConfig('h1')!.updatedAt).toBeGreaterThan(1000);
+      expect(useBookDataStore.getState().getConfig('h1')!.updatedAt).toBe(1000);
+    });
+
+    test('keeps a caller-stamped clock that is newer than the stored one', async () => {
+      const saveBookConfig = vi.fn().mockResolvedValue(undefined);
+      const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+      const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
+
+      useLibraryStore.getState().setLibrary([makeLibraryBook({ hash: 'h1' })]);
+
+      const data = makeBookData('h1', { progress: [42, 100] });
+      useBookDataStore.setState({ booksData: { h1: data } });
+
+      // The proofread / reference-page-count paths stamp explicitly because
+      // they change a synced field without moving the reading position.
+      const stamped: BookConfig = { ...data.config!, updatedAt: 5000 };
+      await useBookDataStore.getState().saveConfig(envConfig, 'h1', stamped, FAKE_SETTINGS);
+
+      expect(useBookDataStore.getState().getConfig('h1')!.updatedAt).toBe(5000);
+    });
+
+    test('never lowers the stored clock when a stale config is passed', async () => {
+      const saveBookConfig = vi.fn().mockResolvedValue(undefined);
+      const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+      const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
+
+      useLibraryStore.getState().setLibrary([makeLibraryBook({ hash: 'h1' })]);
+
+      const data = makeBookData('h1', { progress: [42, 100], updatedAt: 3000 });
+      useBookDataStore.setState({ booksData: { h1: data } });
+
+      const stale: BookConfig = { ...data.config!, updatedAt: 1000 };
+      await useBookDataStore.getState().saveConfig(envConfig, 'h1', stale, FAKE_SETTINGS);
+
+      expect(useBookDataStore.getState().getConfig('h1')!.updatedAt).toBe(3000);
     });
 
     test('does not mutate the caller-provided config object', async () => {
@@ -510,7 +580,7 @@ describe('bookDataStore', () => {
       expect(detachedConfig.updatedAt).toBe(1000);
     });
 
-    test('persists a config carrying the refreshed updatedAt', async () => {
+    test('persists a config carrying the stored progress clock', async () => {
       const saveBookConfig = vi.fn().mockResolvedValue(undefined);
       const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
       const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
@@ -523,7 +593,69 @@ describe('bookDataStore', () => {
       await useBookDataStore.getState().saveConfig(envConfig, 'h1', data.config!, FAKE_SETTINGS);
 
       const persistedConfig = saveBookConfig.mock.calls[0]![1] as BookConfig;
-      expect(persistedConfig.updatedAt).toBeGreaterThan(1000);
+      // The config.json kept on disk is what peers and applySyncedConfigs
+      // compare against, so it has to carry the same clock as the store.
+      expect(persistedConfig.updatedAt).toBe(1000);
+    });
+
+    test('keeps the book row clock when the save did not turn a page', async () => {
+      const saveBookConfig = vi.fn().mockResolvedValue(undefined);
+      const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+      const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
+
+      useLibraryStore
+        .getState()
+        .setLibrary([makeLibraryBook({ hash: 'h1', progress: [42, 100], updatedAt: 5000 })]);
+
+      const data = makeBookData('h1', { progress: [42, 100] });
+      useBookDataStore.setState({ booksData: { h1: data } });
+
+      await useBookDataStore.getState().saveConfig(envConfig, 'h1', data.config!, FAKE_SETTINGS);
+
+      // Opening/closing a book saves, but the row's updatedAt is the clock the
+      // shelf percentage is merged on in the cloud — a no-op save must not
+      // re-publish this device's stale progress as the newest row.
+      expect(useLibraryStore.getState().getBookByHash('h1')!.updatedAt).toBe(5000);
+    });
+
+    test('advances the book row clock when the page turns', async () => {
+      const saveBookConfig = vi.fn().mockResolvedValue(undefined);
+      const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+      const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
+
+      useLibraryStore
+        .getState()
+        .setLibrary([makeLibraryBook({ hash: 'h1', progress: [41, 100], updatedAt: 5000 })]);
+
+      const data = makeBookData('h1', { progress: [42, 100] });
+      useBookDataStore.setState({ booksData: { h1: data } });
+
+      await useBookDataStore.getState().saveConfig(envConfig, 'h1', data.config!, FAKE_SETTINGS);
+
+      expect(useLibraryStore.getState().getBookByHash('h1')!.progress).toEqual([42, 100]);
+      expect(useLibraryStore.getState().getBookByHash('h1')!.updatedAt).toBeGreaterThan(5000);
+    });
+
+    test('lifts the notes clock onto the book row', async () => {
+      // File sync pushes a book's config.json when the ROW changed on any clock.
+      // `updatedAt` deliberately stops moving on an annotation edit, so the notes
+      // clock has to reach the row or the peer never receives the new notes.
+      const saveBookConfig = vi.fn().mockResolvedValue(undefined);
+      const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+      const envConfig = makeEnvConfig({ saveBookConfig, saveLibraryBooks });
+
+      useLibraryStore.getState().setLibrary([makeLibraryBook({ hash: 'h1', progress: [42, 100] })]);
+
+      const data = makeBookData('h1', { progress: [42, 100] });
+      useBookDataStore.setState({ booksData: { h1: data } });
+
+      const stamped: BookConfig = { ...data.config!, notesUpdatedAt: 7000 };
+      await useBookDataStore.getState().saveConfig(envConfig, 'h1', stamped, FAKE_SETTINGS);
+
+      const row = useLibraryStore.getState().getBookByHash('h1')!;
+      expect(row.notesUpdatedAt).toBe(7000);
+      // The progress clock stays where it was: a notes edit is not reading.
+      expect(row.updatedAt).toBe(1000);
     });
   });
 });

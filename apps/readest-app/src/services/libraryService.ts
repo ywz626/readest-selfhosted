@@ -2,6 +2,7 @@ import { FileSystem, SaveLibraryBooksOptions } from '@/types/system';
 import { Book } from '@/types/book';
 import { getLibraryFilename } from '@/utils/book';
 import { safeLoadJSON, safeSaveJSON } from './persistence';
+import { syncNow } from '@/services/sync/clock';
 
 const COVER_CONCURRENCY = 20;
 
@@ -29,7 +30,7 @@ export async function loadLibraryBooks(
 
   await processInBatches(books, COVER_CONCURRENCY, async (book) => {
     book.coverImageUrl = await generateCoverImageUrl(book);
-    book.updatedAt ??= book.lastUpdated || Date.now();
+    book.updatedAt ??= book.lastUpdated || syncNow();
   });
 
   return books;

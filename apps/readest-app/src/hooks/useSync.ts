@@ -13,6 +13,8 @@ import { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import { Book, BookConfig, BookDataRecord, BookNote } from '@/types/book';
 import { navigateToLogin } from '@/utils/nav';
 import { useReaderStore } from '@/store/readerStore';
+import { getAPIBaseUrl } from '@/services/environment';
+import { getSyncClockOffset, setSyncClockOffset } from '@/services/sync/clock';
 
 const transformsFromDB = {
   books: transformBookFromDB,
@@ -143,6 +145,23 @@ export function useSync(bookKey?: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookKey, syncing]);
 
+  // Restore the measured server-clock gap as soon as settings are in: a save
+  // that happens before this session's first pull returns has to stamp on the
+  // server's clock too, or a fast-running device outranks its peers for
+  // everything it writes while offline.
+  useEffect(() => {
+    if (!settings.version) return;
+    // The gap describes this device against ONE endpoint, so a value measured
+    // against another backend (official cloud vs. self-hosted, or a server the
+    // user pointed at last month) is not a measurement of anything here.
+    // Applying it would stamp every new record minutes off until the first pull
+    // of this session re-measures; dropping it to 0 (the plain device clock) at
+    // least errs in the harmless direction.
+    const measuredHere = settings.serverTimeOffsetScope === getAPIBaseUrl();
+    setSyncClockOffset(measuredHere ? settings.serverTimeOffsetMs : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.version]);
+
   useEffect(() => {
     if (!settings.version) return;
     if (bookKey && !config?.location) return;
@@ -224,6 +243,11 @@ export function useSync(bookKey?: string) {
       switch (type) {
         case 'books':
           settings.lastSyncedAtBooks = maxTime;
+          // This pull is also the clock sample (see `SyncClient.pullChanges`);
+          // keep the gap, and the endpoint it was measured against, so the next
+          // offline session stamps on it as well.
+          settings.serverTimeOffsetMs = getSyncClockOffset();
+          settings.serverTimeOffsetScope = getAPIBaseUrl();
           setSettings(settings);
           break;
         case 'configs':

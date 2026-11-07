@@ -2,6 +2,7 @@ import { Book, BookConfig, BookNote, BookDataRecord } from '@/types/book';
 import { getAPIBaseUrl } from '@/services/environment';
 import { getAccessToken } from '@/utils/access';
 import { fetchWithTimeout } from '@/utils/fetch';
+import { observeServerClock, syncNow } from '@/services/sync/clock';
 
 const SYNC_API_ENDPOINT = getAPIBaseUrl() + '/sync';
 
@@ -41,9 +42,56 @@ export interface SyncResult {
   configs: BookConfigRecord[] | null;
   statBooks?: StatBookRecord[] | null;
   statPages?: StatPageRecord[] | null;
+  /** Server clock (epoch ms) as this pull response was built. Absent on older backends. */
+  serverTimeMs?: number;
 }
 
 export type SyncRecord = BookRecord & BookConfigRecord & BookNoteRecord;
+
+/**
+ * How fresh a `synced_at` must be to count as a reading of the server clock. A
+ * delta pull returns every row the server wrote since the cursor, including ones
+ * written hours ago; taken as a sample, one of those would say "the server is
+ * minutes behind us" — this device would lose each merge and its own fresh
+ * changes would sit below the push cursor. Only a row written during this
+ * request bounds the error by the round trip.
+ */
+const MAX_SAMPLE_AGE_MS = 5_000;
+
+/**
+ * Two ways to read the server clock, in order of trust:
+ *
+ * 1. `serverTimeMs`, stamped by the server while it built THIS response. It is
+ *    a direct reading, so neither the device's (skewed) clock nor the age of
+ *    rows in a delta pull plays any part. This is what bootstraps a device
+ *    whose clock leads the server by more than MAX_SAMPLE_AGE_MS: with only
+ *    `synced_at` to go on, "device is 30s fast" and "row is 30s old" are
+ *    indistinguishable, and the first sample can never be taken.
+ * 2. Legacy backends: the newest `synced_at` among the pulled books rows. Its
+ *    age MUST be measured on the corrected clock (`syncNow()`), not `Date.now()`:
+ *    `Date.now() - synced_at` mixes two clocks and equals
+ *    `(device - server) + rowAge`, which shrinks the window to zero for a
+ *    leading device and lets a lagging device accept rows written minutes ago.
+ *    Configs/notes carry no server stamp, and an empty pull says nothing —
+ *    then the last known offset stays in force.
+ */
+const noteServerClock = (result: SyncResult, clientNow: number) => {
+  if (typeof result.serverTimeMs === 'number' && Number.isFinite(result.serverTimeMs)) {
+    observeServerClock(result.serverTimeMs, clientNow);
+    return;
+  }
+
+  let freshest = 0;
+  for (const record of result.books ?? []) {
+    const syncedAt = record.synced_at ? new Date(record.synced_at).getTime() : 0;
+    if (syncedAt > freshest) freshest = syncedAt;
+  }
+  if (!freshest) return;
+  const age = syncNow() - freshest;
+  if (age >= 0 && age <= MAX_SAMPLE_AGE_MS) {
+    observeServerClock(freshest, clientNow);
+  }
+};
 
 export interface SyncData {
   books?: Partial<BookRecord>[];
@@ -85,7 +133,9 @@ export class SyncClient {
       throw new Error(`Failed to pull changes: ${error.error || res.statusText}`);
     }
 
-    return res.json();
+    const result = (await res.json()) as SyncResult;
+    noteServerClock(result, Date.now());
+    return result;
   }
 
   /**

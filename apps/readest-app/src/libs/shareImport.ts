@@ -4,6 +4,7 @@ import type { AppService } from '@/types/system';
 import { useLibraryStore } from '@/store/libraryStore';
 import { getAPIBaseUrl, isTauriAppPlatform } from '@/services/environment';
 import { ShareApiError, getShare, type ImportShareResponse, type ShareMetadata } from './share';
+import { syncNow } from '@/services/sync/clock';
 
 interface EnsureSharedBookLocalArgs {
   token: string;
@@ -87,7 +88,7 @@ export const ensureSharedBookLocal = async ({
       throw new Error('Could not download shared book');
     }
     if (!existing.downloadedAt) existing.downloadedAt = Date.now();
-    existing.updatedAt = Date.now();
+    existing.updatedAt = syncNow();
     await persistLibrary();
     return existing;
   }

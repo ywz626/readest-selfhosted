@@ -54,7 +54,7 @@ export const mergeSyncedConfig = (local: BookConfig, remote: BookConfig): BookCo
   const localAt = local.updatedAt ?? 0;
 
   // A local config that never had a position is stamped with "now" by
-  // `deserializeConfig` (a missing `updatedAt` defaults to Date.now()), so a
+  // `deserializeConfig` (a missing `updatedAt` falls back to the clock), so a
   // pure clock comparison would ignore the remote forever on a book this device
   // has never read. An absent position always loses.
   if (localHasPosition && remoteAt <= localAt) return null;

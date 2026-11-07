@@ -37,6 +37,11 @@ func (h *SyncHandler) pull(w http.ResponseWriter, r *http.Request) {
 	typ := q.Get("type")
 	ctx := r.Context()
 
+	// One response object for every branch. The client measures its clock gap
+	// from ServerTimeMs, so stamp it as late as possible: a paged stats pull can
+	// take seconds, and a value taken at query start would carry that lag.
+	out := &SyncResult{}
+
 	switch typ {
 	case "books", "":
 		rows, err := h.ms.PullBooks(ctx, uid, isoFromMs(sinceMs), 1000)
@@ -44,33 +49,30 @@ func (h *SyncHandler) pull(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		out := &SyncResult{Books: make([]json.RawMessage, 0, len(rows))}
+		out.Books = make([]json.RawMessage, 0, len(rows))
 		for _, b := range rows {
 			out.Books = append(out.Books, json.RawMessage(b.Data))
 		}
-		writeJSON(w, out)
 	case "notes":
 		rows, err := h.ms.PullNotes(ctx, uid, sinceMs)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		out := &SyncResult{Notes: make([]json.RawMessage, 0, len(rows))}
+		out.Notes = make([]json.RawMessage, 0, len(rows))
 		for _, n := range rows {
 			out.Notes = append(out.Notes, json.RawMessage(n))
 		}
-		writeJSON(w, out)
 	case "configs":
 		rows, err := h.ms.PullConfigs(ctx, uid, sinceMs)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		out := &SyncResult{Configs: make([]json.RawMessage, 0, len(rows))}
+		out.Configs = make([]json.RawMessage, 0, len(rows))
 		for _, c := range rows {
 			out.Configs = append(out.Configs, json.RawMessage(c))
 		}
-		writeJSON(w, out)
 	case "stats":
 		sb, err := h.ms.PullStatBooks(ctx, uid, sinceMs)
 		if err != nil {
@@ -82,10 +84,14 @@ func (h *SyncHandler) pull(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, &SyncResult{StatBooks: sb, StatPages: sp})
+		out.StatBooks = sb
+		out.StatPages = sp
 	default:
 		http.Error(w, `{"error":"unknown type"}`, http.StatusBadRequest)
+		return
 	}
+	out.ServerTimeMs = time.Now().UnixMilli()
+	writeJSON(w, out)
 }
 
 func (h *SyncHandler) push(w http.ResponseWriter, r *http.Request) {

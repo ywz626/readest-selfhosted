@@ -600,6 +600,19 @@ export interface SystemSettings {
   lastSyncedAtBooks: number;
   lastSyncedAtConfigs: number;
   lastSyncedAtNotes: number;
+  /**
+   * Measured gap between this device's clock and the sync server's, in ms, kept
+   * so an offline session still stamps records on the server's clock (see
+   * `services/sync/clock.ts`). Device-local, like the cursors above.
+   */
+  serverTimeOffsetMs?: number;
+  /**
+   * The sync endpoint `serverTimeOffsetMs` was measured against. The gap
+   * describes one device against one server, so after switching to another
+   * backend (official cloud vs. self-hosted) the stored value is meaningless and
+   * must not be applied — the two fields are written and read together.
+   */
+  serverTimeOffsetScope?: string;
 
   /**
    * App-lock PIN. When `pinCodeEnabled` is true, the user must enter

@@ -7,6 +7,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { uniqueId } from '@/utils/misc';
 import { ensureRuleId } from '@/utils/proofread';
+import { syncNow } from '@/services/sync/clock';
 
 export interface CreateProofreadRuleOptions {
   scope: ProofreadScope;
@@ -305,7 +306,7 @@ async function updateBookViewSettings(
     await saveConfig(
       envConfig,
       bookKey,
-      { ...config, viewSettings: updatedViewSettings, updatedAt: Date.now() },
+      { ...config, viewSettings: updatedViewSettings, updatedAt: syncNow() },
       settings,
     );
   }

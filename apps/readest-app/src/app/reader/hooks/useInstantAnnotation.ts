@@ -8,6 +8,7 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { mergeRestyledAnnotation, toParentViewportPoint } from '../utils/annotatorUtil';
 import { nextBooknoteStamp } from '@/utils/booknoteStamp';
 import { uniqueId } from '@/utils/misc';
+import { syncNow } from '@/services/sync/clock';
 
 interface UseInstantAnnotationProps {
   bookKey: string;
@@ -220,7 +221,7 @@ export const useInstantAnnotation = ({
       text: text ?? '',
       note: '',
       createdAt: Date.now(),
-      updatedAt: Date.now(),
+      updatedAt: syncNow(),
     };
     return annotation;
     // eslint-disable-next-line react-hooks/exhaustive-deps

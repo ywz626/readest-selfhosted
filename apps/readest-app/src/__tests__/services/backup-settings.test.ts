@@ -241,6 +241,17 @@ describe('sanitizeSettingsForBackup - blacklist', () => {
     expect(BACKUP_SETTINGS_BLACKLIST).toContain('icloud.lastSyncedAt');
     expect(BACKUP_SETTINGS_BLACKLIST).toContain('icloud.providerSelectedAt');
   });
+
+  it('strips both halves of the persisted server-clock offset pair', () => {
+    const settings = makeSettings({
+      serverTimeOffsetMs: -4_300,
+      serverTimeOffsetScope: 'https://sync.example/api',
+    });
+    const out = rec(sanitizeSettingsForBackup(settings));
+    expect(out['serverTimeOffsetMs']).toBeUndefined();
+    expect(out['serverTimeOffsetScope']).toBeUndefined();
+    expect(settings.serverTimeOffsetMs).toBe(-4_300);
+  });
 });
 
 describe('sanitizeSettingsForBackup - credentials', () => {
@@ -368,6 +379,26 @@ describe('mergeRestoredSettings', () => {
     mergeRestoredSettings(current, backup);
     expect(JSON.stringify(current)).toBe(currentSnapshot);
     expect(JSON.stringify(backup)).toBe(backupSnapshot);
+  });
+
+  it('keeps the device clock pair even when a crafted backup carries one', () => {
+    const current = makeSettings({
+      serverTimeOffsetMs: -4_300,
+      serverTimeOffsetScope: 'https://this-device.example/api',
+    });
+    const backup = {
+      libraryViewMode: 'list',
+      serverTimeOffsetMs: 9 * 60 * 1000,
+      serverTimeOffsetScope: 'https://other.example/api',
+    } as unknown as Partial<SystemSettings>;
+
+    const merged = mergeRestoredSettings(current, backup);
+
+    expect(merged.libraryViewMode).toBe('list');
+    expect(merged.serverTimeOffsetMs).toBe(-4_300);
+    expect(merged.serverTimeOffsetScope).toBe('https://this-device.example/api');
+    // Filtering happens on a copy: the crafted input is left alone too.
+    expect(rec(backup)['serverTimeOffsetMs']).toBe(9 * 60 * 1000);
   });
 
   // Bookshelves are LWW rows, not a scalar blob: a restore merges them by stamp

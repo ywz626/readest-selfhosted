@@ -113,6 +113,7 @@ import ModalPortal from '@/components/ModalPortal';
 import { SelectedFile, useFileSelector } from '@/hooks/useFileSelector';
 import { parseMrexpt } from '@/utils/mrexpt';
 import { nextBooknoteStamp } from '@/utils/booknoteStamp';
+import { syncNow } from '@/services/sync/clock';
 import {
   convertMrexptEntriesToBookNotes,
   mergeImportedBookNotes,
@@ -1507,7 +1508,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets; gridInsets?:
         annotation.cfi === cfi && annotation.type === 'excerpt' && !annotation.deletedAt,
     );
     const existing = existingIndex === -1 ? null : annotations[existingIndex]!;
-    const now = Date.now();
+    const now = syncNow();
     const annotation: BookNote = {
       id: existing?.id ?? uniqueId(),
       type: 'excerpt',
@@ -1685,8 +1686,8 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets; gridInsets?:
         text: part.text,
         note: '',
         page: progress.page,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: syncNow(),
+        updatedAt: syncNow(),
       };
       const existingIndex = findExisting(cfi);
       if (existingIndex !== -1) {
@@ -1748,7 +1749,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets; gridInsets?:
     const annotation = buildTTSSentenceHighlight(
       annotations,
       { cfi: detail.cfi, text: detail.text, style, color, page },
-      Date.now(),
+      syncNow(),
     );
     if (!annotation) return;
     annotations.push(annotation);
@@ -1867,7 +1868,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets; gridInsets?:
     if (placeholderIds.length === 0) return;
     const { booknotes = [] } = getConfig(bookKey) ?? {};
     const removed = placeholderIds
-      .map((id) => removeEmptyAnnotationPlaceholder(booknotes, id, Date.now()))
+      .map((id) => removeEmptyAnnotationPlaceholder(booknotes, id, syncNow()))
       .filter((placeholder): placeholder is BookNote => placeholder !== null);
     if (removed.length === 0) return;
     const views = getViewsById(bookKey.split('-')[0]!);
@@ -2573,7 +2574,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets; gridInsets?:
     const latestConfig = getConfig(bookKey);
     if (!latestConfig) return;
     const { booknotes: storedNotes = [] } = latestConfig;
-    const now = Date.now();
+    const now = syncNow();
     const views = getViewsById(bookKey.split('-')[0]!);
     let cleared = 0;
     storedNotes.forEach((note) => {

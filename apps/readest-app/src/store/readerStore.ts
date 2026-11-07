@@ -37,6 +37,7 @@ import { useLibraryStore } from './libraryStore';
 import { clearBookProgress, getBookProgress, setBookProgress } from './readerProgressStore';
 import { uniqueId } from '@/utils/misc';
 import { getWidePages, type WidePagesOptions } from '@/utils/spread';
+import { syncNow } from '@/services/sync/clock';
 
 interface ViewState {
   /* Unique key for each book view */
@@ -436,7 +437,20 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             ...bookData,
             config: {
               ...bookData.config,
-              updatedAt: Date.now(),
+              // A config loaded without a clock still needs one; an existing
+              // one is carried over untouched.
+              updatedAt: bookData.config?.updatedAt ?? syncNow(),
+              // View settings are device preferences: font size, theme, TTS and
+              // the sidebar tab describe THIS screen, and both sync channels
+              // strip them (the cloud push drops everything equal to the
+              // global, file sync's envelope never carries viewSettings). They
+              // must not move `updatedAt` — that is the cross-device progress
+              // clock, and stamping it here re-published the current position
+              // under a fresh timestamp on every font/theme tweak, so a device
+              // that only changed its font size outranked the device the user
+              // actually read on. The one key that IS book data
+              // (`referencePageCount`) is stamped explicitly by its writer in
+              // `saveViewSettings`.
               // The sidebar tab is written to the book config only, so keep
               // it rather than the live copy's stale value (#6836).
               viewSettings: {
@@ -506,6 +520,27 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       useBookDataStore.setState((state) => {
         const existing = state.booksData[id];
         if (!existing) return state;
+        // The config's `updatedAt` is the cross-device progress clock: the
+        // server keeps the record with the highest one and every peer merges
+        // on it. It has to advance exactly when the reading position does —
+        // this is the only place that observes a page turn, so stamping it
+        // here is what lets "the last device the user actually read on wins"
+        // hold. `saveConfig` deliberately does not stamp (a book open/close
+        // or an annotation edit is not reading), and the comparison is on the
+        // page index rather than the CFI: re-opening a book re-emits the same
+        // position with a differently granularised CFI, which must not look
+        // like movement. A deep-link preview shows a transient position, so it
+        // never owns the clock.
+        const moved = (existing.config?.progress?.[0] ?? 0) !== progress[0];
+        // Monotonic, like `markBookDeleted` and `nextBooknoteStamp`: an older
+        // build stamped this config with the raw device clock, so a
+        // fast-clocked device may already have PUBLISHED it under a future
+        // timestamp. Lowering it here would make the server drop the push, and
+        // the next pull would write that record's older position back over the
+        // page just read — forever, until wall time catches up. `prev + 1` is
+        // the smallest stamp that still outranks what is already published.
+        const stampedAt = Math.max(syncNow(), (existing.config?.updatedAt ?? 0) + 1);
+        const clock = moved && !viewState.previewMode ? { updatedAt: stampedAt } : {};
         return {
           booksData: {
             ...state.booksData,
@@ -515,6 +550,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
                 ...existing.config,
                 progress,
                 location,
+                ...clock,
               } as BookConfig,
             },
           },

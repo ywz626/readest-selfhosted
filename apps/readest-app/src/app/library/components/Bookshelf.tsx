@@ -68,6 +68,7 @@ import TaggingModal from './TaggingModal';
 import SetStatusAlert from './SetStatusAlert';
 import { useOpenBook } from '../hooks/useOpenBook';
 import LibrarySearchResults from './LibrarySearchResults';
+import { syncNow } from '@/services/sync/clock';
 
 export interface ContentSearchRequest {
   query: string;
@@ -775,11 +776,11 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     async (item: Book | BooksGroup) => {
       if ('format' in item) {
         const book = item as Book;
-        const pinnedAt = book.pinnedAt ? undefined : Date.now();
+        const pinnedAt = book.pinnedAt ? undefined : syncNow();
         // Bump metadataUpdatedAt so the pin/unpin travels on the metadata clock
         // (#5438) rather than the progress-dominated row clock — otherwise a
         // peer's later read could silently clear this device's pin.
-        const now = Date.now();
+        const now = syncNow();
         await updateBooks(envConfig, [
           { ...book, pinnedAt, updatedAt: now, metadataUpdatedAt: now },
         ]);

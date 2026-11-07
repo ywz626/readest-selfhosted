@@ -12,6 +12,7 @@ import { DBBookConfig, DBBook, DBBookNote } from '@/types/records';
 import { sanitizeString } from './sanitize';
 import { buildFeedBookUrl } from '@/services/rss/feedBookUrl';
 import { restoreAbsBookFields } from './audiobook';
+import { syncNow } from '@/services/sync/clock';
 
 export const transformBookConfigToDB = (bookConfig: unknown, userId: string): DBBookConfig => {
   const {
@@ -36,7 +37,7 @@ export const transformBookConfigToDB = (bookConfig: unknown, userId: string): DB
     rsvp_position: rsvpPosition && JSON.stringify(rsvpPosition),
     search_config: searchConfig && JSON.stringify(searchConfig),
     view_settings: viewSettings && JSON.stringify(viewSettings),
-    updated_at: new Date(updatedAt ?? Date.now()).toISOString(),
+    updated_at: new Date(updatedAt ?? syncNow()).toISOString(),
   };
 };
 
@@ -130,8 +131,12 @@ export const transformBookToDB = (book: unknown, userId: string): DBBook => {
     source_title: sanitizeString(sourceTitle),
     metadata: metadata ? sanitizeString(JSON.stringify(metadata)) : null,
     metadata_updated_at: metadataUpdatedAt ? new Date(metadataUpdatedAt).toISOString() : null,
-    created_at: new Date(createdAt ?? Date.now()).toISOString(),
-    updated_at: new Date(updatedAt ?? Date.now()).toISOString(),
+    // Same clock as `updated_at` below: `importBook` stamps `createdAt` with
+    // `syncNow()`, so falling back to the raw device clock here would put a book
+    // added by a skewed device at a different "Date Added" on the cloud row
+    // than in its own library.json.
+    created_at: new Date(createdAt ?? syncNow()).toISOString(),
+    updated_at: new Date(updatedAt ?? syncNow()).toISOString(),
     deleted_at: deletedAt ? new Date(deletedAt).toISOString() : null,
     uploaded_at: uploadedAt ? new Date(uploadedAt).toISOString() : null,
   };
@@ -248,7 +253,7 @@ export const transformBookNoteToDB = (bookNote: unknown, userId: string): DBBook
     // Absent for other notes, so an upsert never clears stored strokes.
     ink,
     created_at: new Date(createdAt ?? Date.now()).toISOString(),
-    updated_at: new Date(updatedAt ?? Date.now()).toISOString(),
+    updated_at: new Date(updatedAt ?? syncNow()).toISOString(),
     // note that only null deleted_at is updated to the database, undefined is not
     deleted_at: deletedAt ? new Date(deletedAt).toISOString() : null,
   };

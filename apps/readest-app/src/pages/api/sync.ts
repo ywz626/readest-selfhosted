@@ -654,6 +654,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
+    // Stamp the server clock as the response is built. Clients measure their
+    // own clock gap from it; taking it here (rather than at query start) keeps
+    // a paged stats pull from adding its whole duration to the sample.
+    results.serverTimeMs = Date.now();
     const response = NextResponse.json(results, { status: 200 });
     response.headers.set('Cache-Control', 'no-store');
     response.headers.set('Pragma', 'no-cache');

@@ -472,4 +472,63 @@ describe('FileSyncEngine field-only edits (#6414)', () => {
     expect(capture.config).toBeTruthy();
     expect(loadBookCover).toHaveBeenCalled();
   });
+
+  // An annotation / bookmark edit deliberately leaves `updatedAt` alone (that is
+  // the cross-device progress clock), so the notes need their own row clock —
+  // without it the incremental cursor sees "nothing changed" and the peer keeps
+  // the pre-annotation config.json until the next page turn.
+  test('pushes config.json for a notes-only local edit', async () => {
+    const local = makeLocalBook({ updatedAt: 100, notesUpdatedAt: 300 });
+    const remote = makeLocalBook({ updatedAt: 100, notesUpdatedAt: 200 });
+    const capture: { index?: RemoteLibraryIndex | null; config?: RemoteBookConfig | null } = {};
+    const provider = makeProvider(makeRemoteIndex(remote, 100), null, capture);
+
+    const loadConfig = vi.fn(
+      async (): Promise<BookConfig> => ({
+        updatedAt: 100,
+        notesUpdatedAt: 300,
+        booknotes: [makeNote('n1', 300)],
+      }),
+    );
+    const store = makeStore({ loadConfig });
+
+    const engine = new FileSyncEngine(provider, store);
+    const result = await engine.syncLibrary([local], {
+      strategy: 'silent',
+      syncBooks: false,
+      deviceId: 'pc-device',
+    });
+
+    expect(capture.config).toBeTruthy();
+    expect(capture.config!.booknotes.map((n) => n.id)).toEqual(['n1']);
+    expect(result.configsUploaded).toBe(1);
+  });
+
+  test('pulls config.json for a peer notes-only edit without re-fetching cover bytes', async () => {
+    const local = makeLocalBook({ updatedAt: 100, notesUpdatedAt: 100 });
+    const remote = makeLocalBook({ updatedAt: 100, notesUpdatedAt: 200 });
+    const capture: { index?: RemoteLibraryIndex | null; config?: RemoteBookConfig | null } = {};
+    const provider = makeProvider(
+      makeRemoteIndex(remote, 100),
+      makeRemoteConfig({ config: { updatedAt: 100 }, booknotes: [makeNote('n2', 200)] }),
+      capture,
+    );
+
+    const saveBookConfig = vi.fn(async (_book: Book, _config: BookConfig) => {});
+    const saveBookCover = vi.fn(async () => {});
+    const store = makeStore({ saveBookConfig, saveBookCover });
+
+    const engine = new FileSyncEngine(provider, store);
+    await engine.syncLibrary([local], {
+      strategy: 'silent',
+      syncBooks: false,
+      deviceId: 'pc-device',
+    });
+
+    expect(saveBookConfig).toHaveBeenCalledTimes(1);
+    const merged = saveBookConfig.mock.calls[0]![1];
+    expect(merged.booknotes!.map((n) => n.id)).toContain('n2');
+    // A notes edit moves no bytes: the cover must not be re-downloaded.
+    expect(saveBookCover).not.toHaveBeenCalled();
+  });
 });

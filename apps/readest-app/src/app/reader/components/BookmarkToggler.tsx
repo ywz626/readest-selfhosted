@@ -15,6 +15,7 @@ import { isCfiInLocation } from '@/utils/cfi';
 import { nextBooknoteStamp } from '@/utils/booknoteStamp';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 
+import { syncNow } from '@/services/sync/clock';
 interface BookmarkTogglerProps {
   bookKey: string;
 }
@@ -51,8 +52,8 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
         text: truncatedText ? truncatedText : `${getCurrentPage(bookData.book!, progress)}`,
         note: '',
         page: progress.page,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: syncNow(),
+        updatedAt: syncNow(),
       };
       const existingBookmark = bookmarks.find(
         (item) => item.type === 'bookmark' && item.cfi === cfi,

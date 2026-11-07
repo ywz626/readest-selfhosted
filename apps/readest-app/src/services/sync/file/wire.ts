@@ -1,4 +1,5 @@
 import { Book, BookConfig, BookNote } from '@/types/book';
+import { syncNow } from '@/services/sync/clock';
 
 /**
  * Per-book remote payload stored at
@@ -41,7 +42,12 @@ export interface RemoteBookConfig {
   referencePageCount?: number;
   writerDeviceId: string;
   writerVersion: 'readest-webdav-1';
-  /** When the writer last touched the row (client wall clock, millis). */
+  /**
+   * When the writer last touched the row, on the corrected sync clock
+   * (`syncNow()`). Peers of one library all measure the same sync server, so
+   * this orders them against each other instead of against their own wall
+   * clocks — the same reason every other stamp in the protocol goes through it.
+   */
   updatedAt: number;
 }
 
@@ -89,8 +95,50 @@ export const buildRemotePayload = (
     ...(referencePageCount ? { referencePageCount } : {}),
     writerDeviceId: deviceId,
     writerVersion: 'readest-webdav-1',
-    updatedAt: Date.now(),
+    updatedAt: syncNow(),
   };
+};
+
+/**
+ * `library.json` and `config.json` live on a shared remote that anyone with
+ * write access to the folder can PUT — the payload carries no signature or MAC.
+ * Its clock fields feed LWW compares, `Math.max` and `new Date(...).toISOString()`,
+ * so a string, NaN, Infinity, negative or absurdly future value would either
+ * throw or pin a row's ordering forever (every peer adopts it through the
+ * monotonic merges). Reject anything that is not a plausible epoch-ms stamp.
+ */
+const MAX_CLOCK_MS = 8.64e15; // largest epoch ms a JS Date can represent
+const MAX_FUTURE_CLOCK_MS = 7 * 24 * 60 * 60 * 1000;
+
+const isPlausibleClock = (value: unknown, now: number): value is number =>
+  typeof value === 'number' &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= MAX_CLOCK_MS &&
+  value <= now + MAX_FUTURE_CLOCK_MS;
+
+/** Clock fields are named `*At`, or `lastSyncedAt*` / `lastPushedAt*`. */
+const isClockField = (key: string): boolean =>
+  key.endsWith('At') || key.startsWith('lastSyncedAt') || key.startsWith('lastPushedAt');
+
+/** `createdAt` / `updatedAt` are required by the row type; the rest are optional. */
+const REQUIRED_CLOCK_FIELDS = new Set(['createdAt', 'updatedAt']);
+
+/**
+ * Neutralize implausible clock fields in an untrusted remote row, in place.
+ * Optional clocks are dropped (every consumer treats absent as 0); required
+ * ones become 0 so a Book / BookConfig never loses its `updatedAt` type.
+ */
+const sanitizeRemoteClocks = (row: unknown, now: number): void => {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return;
+  const record = row as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    const value = record[key];
+    if (value === null || value === undefined || !isClockField(key)) continue;
+    if (isPlausibleClock(value, now)) continue;
+    if (REQUIRED_CLOCK_FIELDS.has(key)) record[key] = 0;
+    else delete record[key];
+  }
 };
 
 export const parseRemotePayload = (raw: string | null): RemoteBookConfig | null => {
@@ -98,6 +146,14 @@ export const parseRemotePayload = (raw: string | null): RemoteBookConfig | null 
   try {
     const parsed = JSON.parse(raw) as RemoteBookConfig;
     if (!parsed || parsed.schemaVersion !== 1) return null;
+    const now = Date.now();
+    // The envelope clock is part of the frozen contract: keep it a number,
+    // but a bogus one must not be allowed to win every LWW compare.
+    parsed.updatedAt = isPlausibleClock(parsed.updatedAt, now) ? parsed.updatedAt : 0;
+    sanitizeRemoteClocks(parsed.config, now);
+    if (Array.isArray(parsed.booknotes)) {
+      for (const note of parsed.booknotes) sanitizeRemoteClocks(note, now);
+    }
     return parsed;
   } catch {
     return null;
@@ -140,7 +196,11 @@ export const parseRemoteLibraryIndex = (raw: string | null): RemoteLibraryIndex 
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as RemoteLibraryIndex;
-    if (parsed && parsed.schemaVersion === 1) return parsed;
+    if (!parsed || parsed.schemaVersion !== 1 || !Array.isArray(parsed.books)) return null;
+    const now = Date.now();
+    parsed.updatedAt = isPlausibleClock(parsed.updatedAt, now) ? parsed.updatedAt : 0;
+    for (const book of parsed.books) sanitizeRemoteClocks(book, now);
+    return parsed;
   } catch {
     // Ignore parse errors — a malformed index is treated as "no index".
   }

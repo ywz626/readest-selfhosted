@@ -3,6 +3,7 @@ import { SystemSettings } from '@/types/settings';
 import { Book, BookConfig, BookFormat, BookNote } from '@/types/book';
 import { EnvConfigType } from '@/services/environment';
 import { BookDoc } from '@/libs/document';
+import { syncNow } from '@/services/sync/clock';
 import { useLibraryStore } from './libraryStore';
 
 // Throttle library.json writes triggered by per-book saveConfig.
@@ -157,22 +158,64 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
     // progress and timestamps. We do NOT mutate the existing book object or
     // the existing library array — Zustand subscribers see fresh references
     // and the visibleLibrary cache stays in sync via setLibrary's full update.
-    const now = Date.now();
+    const now = syncNow();
     const original = library[idx]!;
+    // Same rule as `updateBookProgress`: the row's `updatedAt` is the clock
+    // `progress` is merged on, so a save that did not turn a page must not
+    // advance it. Opening and closing a book both land here, and each no-op
+    // save used to re-publish this device's stale percentage as the newest row
+    // — which is what dragged the shelf back after another device had read.
+    const pageMoved = (original.progress?.[0] ?? 0) !== (config.progress?.[0] ?? 0);
+    // An annotation / bookmark edit leaves `updatedAt` alone (that is the
+    // progress clock above) but peers still have to learn the notes changed, so
+    // it travels on its own row clock. `Math.max` for the same reason as the
+    // config clock below: a stale config handed in by a caller must never lower
+    // a clock this device already published.
+    const notesUpdatedAt =
+      Math.max(original.notesUpdatedAt ?? 0, config.notesUpdatedAt ?? 0) || undefined;
     const updatedBook: Book = {
       ...original,
       progress: config.progress,
-      updatedAt: now,
-      downloadedAt: original.downloadedAt || now,
+      updatedAt: pageMoved ? now : (original.updatedAt ?? now),
+      // Device-local bookkeeping — nothing ever compares it to a server record,
+      // so it stays on the wall clock (`syncNow()` would put it in the future
+      // whenever this device lags the server).
+      downloadedAt: original.downloadedAt || Date.now(),
+      // Only set when there is a clock to carry: an explicit `undefined` key on
+      // every row would churn library.json for nothing.
+      ...(notesUpdatedAt ? { notesUpdatedAt } : {}),
     };
     const newLibrary = [updatedBook, ...library.slice(0, idx), ...library.slice(idx + 1)];
     setLibrary(newLibrary);
 
-    // Refresh updatedAt immutably via the store rather than mutating the
+    // Refresh the store config immutably rather than mutating the
     // caller-provided object. This notifies Zustand subscribers and works
     // regardless of whether the caller passed the shared store config.
-    get().setConfig(bookKey, { updatedAt: now });
-    const configToSave = { ...config, updatedAt: now };
+    //
+    // The config's `updatedAt` is NOT that refreshed timestamp: it is the
+    // cross-device progress clock, and the server plus every peer keep the
+    // record carrying the highest one (`configs` LWW, and the piggyback that
+    // copies progress onto the book row). Stamping it here on every save made
+    // mere book opens, closes and annotation edits outrank the device the user
+    // actually read on — this save then re-published a stale position as the
+    // newest record, the peer's newer position was rejected as "not newer",
+    // and its push lost to the next no-op save. Only `setProgress` (a page
+    // actually turned) and callers that explicitly pass a bumped stamp may
+    // advance this clock; everything else carries the existing value forward.
+    const configUpdatedAt =
+      Math.max(get().getConfig(bookKey)?.updatedAt ?? 0, config.updatedAt ?? 0) || now;
+    const configNotesUpdatedAt =
+      Math.max(get().getConfig(bookKey)?.notesUpdatedAt ?? 0, config.notesUpdatedAt ?? 0) ||
+      undefined;
+    get().setConfig(bookKey, {
+      updatedAt: configUpdatedAt,
+      ...(configNotesUpdatedAt ? { notesUpdatedAt: configNotesUpdatedAt } : {}),
+    });
+    const configToSave = {
+      ...config,
+      updatedAt: configUpdatedAt,
+      ...(configNotesUpdatedAt ? { notesUpdatedAt: configNotesUpdatedAt } : {}),
+    };
     // Per-book config: still write eagerly — it's small (one book's
     // settings + booknotes) and is the source of truth used by sync to
     // reconstruct the shelf if library.json is missing or stale.
@@ -196,9 +239,23 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
           ]),
         ).values(),
       );
+      // `updatedAt` is the cross-device PROGRESS clock: `mergeSyncedConfig` and
+      // the cloud config LWW compare it, so stamping it on an annotation edit
+      // re-published whatever position this config held as the newest record,
+      // and the peer's later position lost to it. The notes themselves travel
+      // on the `notes` channel with their own per-note stamps; file sync needs
+      // only a per-row hint that the config changed, which is `notesUpdatedAt`
+      // (`saveConfig` lifts it onto the library row). Monotonic like the
+      // progress clock, for the same future-stamp reason.
+      const now = Math.max(syncNow(), (book.config?.notesUpdatedAt ?? 0) + 1);
+      // `updatedAt` is carried forward untouched — the `?? now` only fills in a
+      // config that was loaded without any clock at all, which is the same
+      // fallback `deserializeConfig` applies.
+      const carriedUpdatedAt = book.config?.updatedAt ?? now;
       updatedConfig = {
         ...book.config,
-        updatedAt: Date.now(),
+        updatedAt: carriedUpdatedAt,
+        notesUpdatedAt: now,
         booknotes: dedupedBooknotes,
       };
       return {
@@ -208,7 +265,8 @@ export const useBookDataStore = create<BookDataState>((set, get) => ({
             ...book,
             config: {
               ...book.config,
-              updatedAt: Date.now(),
+              updatedAt: carriedUpdatedAt,
+              notesUpdatedAt: now,
               booknotes: dedupedBooknotes,
             },
           },

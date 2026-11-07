@@ -21,6 +21,7 @@ import type { HardcoverBookLink } from '@/types/book';
 import { eventDispatcher } from '@/utils/event';
 import { getLocale } from '@/utils/misc';
 
+import { syncNow } from '@/services/sync/clock';
 interface HardcoverLinkDialogProps {
   bookKey: string;
   onClose: () => void;
@@ -110,7 +111,7 @@ const HardcoverLinkDialog = ({ bookKey, onClose }: HardcoverLinkDialogProps) => 
     await saveConfig(
       envConfig,
       bookKey,
-      { ...current, hardcover: link, updatedAt: Date.now() },
+      { ...current, hardcover: link, updatedAt: syncNow() },
       settings,
     );
     setConfig(bookKey, { hardcover: link });

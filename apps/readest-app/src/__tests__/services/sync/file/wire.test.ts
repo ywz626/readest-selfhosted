@@ -121,3 +121,63 @@ describe('wire envelope (frozen)', () => {
     expect(stripped).not.toHaveProperty('absDownloadedAt');
   });
 });
+
+describe('remote clock validation', () => {
+  const bogus = {
+    notesUpdatedAt: Number.MAX_VALUE,
+    metadataUpdatedAt: 'not-a-number',
+    groupUpdatedAt: -1,
+    readingStatusUpdatedAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    deletedAt: 8.7e15, // beyond JS Date's range: toISOString() would throw
+  };
+
+  test('drops implausible clocks from a shared library.json row', () => {
+    const parsed = parseRemoteLibraryIndex(
+      JSON.stringify({ schemaVersion: 1, books: [{ ...book, ...bogus }], updatedAt: 5 }),
+    );
+    const row = parsed!.books[0]!;
+    expect(row.notesUpdatedAt).toBeUndefined();
+    expect(row.metadataUpdatedAt).toBeUndefined();
+    expect(row.groupUpdatedAt).toBeUndefined();
+    expect(row.readingStatusUpdatedAt).toBeUndefined();
+    expect(row.deletedAt).toBeUndefined();
+    // Plausible stamps survive untouched.
+    expect(row.createdAt).toBe(1);
+    expect(row.updatedAt).toBe(1);
+    expect(parsed!.updatedAt).toBe(5);
+  });
+
+  test('normalizes an implausible required row clock to 0', () => {
+    const parsed = parseRemoteLibraryIndex(
+      JSON.stringify({
+        schemaVersion: 1,
+        books: [{ ...book, updatedAt: Number.MAX_VALUE }],
+        updatedAt: Number.MAX_VALUE,
+      }),
+    );
+    expect(parsed!.books[0]!.updatedAt).toBe(0);
+    expect(parsed!.updatedAt).toBe(0);
+  });
+
+  test('rejects an index whose books is not an array', () => {
+    expect(
+      parseRemoteLibraryIndex(JSON.stringify({ schemaVersion: 1, books: {}, updatedAt: 5 })),
+    ).toBeNull();
+  });
+
+  test('drops implausible clocks from a per-book config.json envelope', () => {
+    const raw = JSON.parse(JSON.stringify(buildRemotePayload(book, config, 'dev-1'))) as Record<
+      string,
+      unknown
+    >;
+    (raw['config'] as Record<string, unknown>)['notesUpdatedAt'] = Number.MAX_VALUE;
+    raw['booknotes'] = [{ id: 'n1', type: 'bookmark', updatedAt: Number.MAX_VALUE, createdAt: 1 }];
+    raw['updatedAt'] = Number.MAX_VALUE;
+
+    const parsed = parseRemotePayload(JSON.stringify(raw));
+    expect(parsed!.updatedAt).toBe(0);
+    expect(parsed!.config.notesUpdatedAt).toBeUndefined();
+    expect(parsed!.booknotes[0]!.updatedAt).toBe(0);
+    expect(parsed!.booknotes[0]!.createdAt).toBe(1);
+  });
+});

@@ -6,6 +6,8 @@ const getViewSettingsMock = vi.fn<(bookKey: string) => { isGlobal?: boolean } | 
 const setViewSettingsMock = vi.fn();
 const getViewMock = vi.fn(() => null);
 const getViewStateMock = vi.fn(() => undefined);
+const getConfigMock = vi.fn();
+const saveConfigMock = vi.fn();
 
 vi.mock('@/store/readerStore', () => ({
   useReaderStore: {
@@ -22,8 +24,8 @@ vi.mock('@/store/readerStore', () => ({
 vi.mock('@/store/bookDataStore', () => ({
   useBookDataStore: {
     getState: () => ({
-      getConfig: vi.fn(() => null),
-      saveConfig: vi.fn(),
+      getConfig: getConfigMock,
+      saveConfig: saveConfigMock,
     }),
   },
 }));
@@ -63,6 +65,10 @@ beforeEach(() => {
   getViewSettingsMock.mockReset();
   getViewSettingsMock.mockReturnValue(undefined);
   setViewSettingsMock.mockReset();
+  getConfigMock.mockReset();
+  getConfigMock.mockReturnValue(null);
+  saveConfigMock.mockReset();
+  saveConfigMock.mockResolvedValue(undefined);
   useSettingsStore.setState({
     settings: makeSettings(),
     setSettings: (s: SystemSettings) => useSettingsStore.setState({ settings: s }),
@@ -224,5 +230,37 @@ describe('saveViewSettings', () => {
     // into the cross-device globals.
     expect(referenceChanges).toHaveLength(0);
     expect(useSettingsStore.getState().settings).toBe(initial);
+  });
+
+  test('stamps the config when referencePageCount changes', async () => {
+    // The print edition's length is book data, not a device preference: file
+    // sync ships it with the config's own updatedAt in the envelope and the
+    // cloud resolves the key by comparing that clock, so its writer has to
+    // move the clock that `setViewSettings` deliberately leaves alone.
+    getViewSettingsMock.mockImplementation(
+      () => ({ isGlobal: false, referencePageCount: 0 }) as never,
+    );
+    getViewStateMock.mockReturnValue({ isPrimary: true } as never);
+    getConfigMock.mockReturnValue({ updatedAt: 1000, viewSettings: { referencePageCount: 400 } });
+
+    await saveViewSettings(envConfig, 'book-1', 'referencePageCount', 400, true, false);
+
+    expect(saveConfigMock).toHaveBeenCalledTimes(1);
+    const saved = saveConfigMock.mock.calls[0]![2] as { updatedAt: number };
+    expect(saved.updatedAt).toBeGreaterThan(1000);
+  });
+
+  test('does not stamp the config for a device-local view setting', async () => {
+    getViewSettingsMock.mockImplementation(
+      () => ({ isGlobal: false, defaultFontSize: 16 }) as never,
+    );
+    getViewStateMock.mockReturnValue({ isPrimary: true } as never);
+    getConfigMock.mockReturnValue({ updatedAt: 1000, viewSettings: { defaultFontSize: 16 } });
+
+    await saveViewSettings(envConfig, 'book-1', 'defaultFontSize', 18, true, false);
+
+    expect(saveConfigMock).toHaveBeenCalledTimes(1);
+    const saved = saveConfigMock.mock.calls[0]![2] as { updatedAt: number };
+    expect(saved.updatedAt).toBe(1000);
   });
 });

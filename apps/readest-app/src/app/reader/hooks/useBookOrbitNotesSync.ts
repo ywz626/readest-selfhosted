@@ -16,6 +16,7 @@ import { eventDispatcher } from '@/utils/event';
 import { throttle } from '@/utils/throttle';
 import { getCFIFromXPointer, getCFIFromXPointerRange, getXPointerFromCFI } from '@/utils/xcfi';
 import { useWindowActiveChanged } from './useWindowActiveChanged';
+import { syncNow } from '@/services/sync/clock';
 
 /**
  * Per-book BookOrbit pass, mounted beside useNotesSync: match-check (lists an
@@ -68,7 +69,7 @@ export const useBookOrbitNotesSync = (bookKey: string) => {
                 ...note,
                 xpointer0: xpResult.pos0 || xpResult.xpointer,
                 xpointer1: xpResult.pos1,
-                updatedAt: Date.now(),
+                updatedAt: syncNow(),
               });
               continue;
             }

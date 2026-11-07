@@ -38,6 +38,7 @@ import { tryNativeParseMobi } from '@/utils/tauriMobiBridge';
 import { tryNativeParsePdf } from '@/utils/tauriPdfBridge';
 import { isPseStreamFileName, openPseStreamBook, parsePseStreamFileName } from './opds/pseStream';
 import { DEFAULT_BOOK_SEARCH_CONFIG, DEFAULT_FIXED_LAYOUT_VIEW_SETTINGS } from './constants';
+import { syncNow } from './sync/clock';
 import { isContentURI, isValidURL, makeSafeFilename } from '@/utils/misc';
 import { deserializeConfig, serializeConfig, serializeRawConfig } from '@/utils/serializer';
 import { ClosableFile } from '@/utils/file';
@@ -746,8 +747,8 @@ export async function importBook(
         existingBook.deletedAt = null;
         existingBook.fileSyncDeletionRequestedAt = null;
       }
-      existingBook.createdAt = Date.now();
-      existingBook.updatedAt = Date.now();
+      existingBook.createdAt = syncNow();
+      existingBook.updatedAt = syncNow();
     }
 
     // Aggregate all books with same metaHash and format, deduplicating into one entry
@@ -776,8 +777,8 @@ export async function importBook(
           existingBook = firstMatch;
           rememberBookState(existingBook);
           metaHashMatch = true;
-          existingBook.createdAt = Date.now();
-          existingBook.updatedAt = Date.now();
+          existingBook.createdAt = syncNow();
+          existingBook.updatedAt = syncNow();
         }
       }
       // One book, last import wins: re-importing a retired version un-deletes
@@ -803,11 +804,11 @@ export async function importBook(
       hasNarration: hasMediaOverlays(loadedBook) || undefined,
       pageCount: getBookDocPageCount(loadedBook, format),
       metadata: loadedBook.metadata,
-      createdAt: existingBook ? existingBook.createdAt : Date.now(),
+      createdAt: existingBook ? existingBook.createdAt : syncNow(),
       uploadedAt: existingBook ? existingBook.uploadedAt : null,
-      deletedAt: transient ? Date.now() : null,
+      deletedAt: transient ? syncNow() : null,
       downloadedAt: Date.now(),
-      updatedAt: Date.now(),
+      updatedAt: syncNow(),
     };
     // update series info from metadata
     if (book.metadata?.belongsTo?.series) {
@@ -844,7 +845,7 @@ export async function importBook(
           existingBook.readingStatus = 'unread';
           existingBook.readingStatusUpdatedAt = Math.max(
             (existingBook.readingStatusUpdatedAt ?? 0) + 1,
-            Date.now(),
+            syncNow(),
           );
         }
       }
@@ -1035,7 +1036,7 @@ export async function importBook(
     rollbackBook = undefined;
     rollbackSnapshot = undefined;
     if (retiredTombstone) {
-      const now = Date.now();
+      const now = syncNow();
       retiredTombstone.deletedAt = now;
       retiredTombstone.updatedAt = now;
       books.push(retiredTombstone);
@@ -1053,7 +1054,7 @@ export async function importBook(
     const cleanupDirectories = new Set<string>();
     for (const duplicate of mergeResult?.duplicates ?? []) {
       // Stamp updatedAt too, or the retirement loses row-level LWW at peers.
-      duplicate.deletedAt = duplicate.updatedAt = Date.now();
+      duplicate.deletedAt = duplicate.updatedAt = syncNow();
       cleanupDirectories.add(getDir(duplicate));
     }
     if (metaHashMatch && oldBookDir && oldBookDir !== getDir(book)) {

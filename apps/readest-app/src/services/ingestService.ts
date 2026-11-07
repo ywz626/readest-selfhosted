@@ -6,6 +6,7 @@ import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { normalizeFilePathForIndex } from '@/services/bookService';
 import { isContentURI, isValidURL } from '@/utils/misc';
 import { isPseStreamFileName } from '@/services/opds/pseStream';
+import { syncNow } from '@/services/sync/clock';
 
 export interface IngestFileDeps {
   appService: AppService;
@@ -218,7 +219,7 @@ export async function ingestFile(
   if (opts.groupId !== undefined) {
     book.groupId = opts.groupId;
     book.groupName = opts.groupName;
-    book.updatedAt = Date.now();
+    book.updatedAt = syncNow();
     // Group membership merges on its own clock (#5911); stamp it or a peer
     // that never learned about this group wins the row and clears it. The
     // empty-string "demote to root" case must be stamped too — an unstamped
@@ -231,7 +232,7 @@ export async function ingestFile(
     const tags = book.tags ?? [];
     if (!tags.includes(tag)) {
       book.tags = [...tags, tag];
-      book.updatedAt = Date.now();
+      book.updatedAt = syncNow();
       // Tags merge on the metadata clock (#5438); stamp it or a peer's older
       // stamped metadata edit would win the group and drop this tag.
       book.metadataUpdatedAt = book.updatedAt;

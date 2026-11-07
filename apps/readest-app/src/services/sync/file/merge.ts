@@ -197,6 +197,11 @@ export const mergeBookMetadata = (local: Book, remote: Book): Book => {
   // this a metadata-less peer erased every book's description across the fleet
   // (#5912).
   merged.metadata = merged.metadata ?? remote.metadata ?? local.metadata;
+  // The notes clock only ever advances: it says "the notes in config.json were
+  // edited", so publishing a row that carries the older one would let this
+  // device keep re-uploading (and re-pulling) the same config forever.
+  const notesAt = Math.max(local.notesUpdatedAt ?? 0, remote.notesUpdatedAt ?? 0);
+  if (notesAt) merged.notesUpdatedAt = notesAt;
   return merged;
 };
 
@@ -226,14 +231,17 @@ export const isRemoteBookClockNewer = (local: Book, remote: Book): boolean =>
   (remote.metadataUpdatedAt ?? 0) > (local.metadataUpdatedAt ?? 0);
 
 /**
- * {@link isRemoteBookClockNewer} plus the group clock: true when the remote
- * index ROW is newer. Grouping stamps only groupUpdatedAt (#6414), so a
- * group-only change must still travel through library.json — but it moves no
- * bytes, which is why the group clock stays out of isRemoteBookClockNewer.
+ * {@link isRemoteBookClockNewer} plus the per-row clocks that move no book row
+ * bytes: the group clock (#6414) and the notes clock. Grouping stamps only
+ * groupUpdatedAt, so a group-only change must still travel through
+ * library.json — but it moves no bytes, which is why the group clock stays out
+ * of isRemoteBookClockNewer, and the notes clock stays out for the same reason
+ * (a notes edit re-uploads config.json, never the cover).
  */
 export const isRemoteBookRowNewer = (local: Book, remote: Book): boolean =>
   isRemoteBookClockNewer(local, remote) ||
-  (remote.groupUpdatedAt ?? 0) > (local.groupUpdatedAt ?? 0);
+  (remote.groupUpdatedAt ?? 0) > (local.groupUpdatedAt ?? 0) ||
+  (remote.notesUpdatedAt ?? 0) > (local.notesUpdatedAt ?? 0);
 
 export const shouldApplyRemoteBookMetadata = (local: Book, remote: Book): boolean =>
   !remote.deletedAt && !local.deletedAt && isRemoteBookRowNewer(local, remote);

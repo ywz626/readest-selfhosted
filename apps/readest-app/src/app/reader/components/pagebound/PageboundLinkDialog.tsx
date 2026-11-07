@@ -13,6 +13,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import type { PageboundBookLink } from '@/types/book';
 import { eventDispatcher } from '@/utils/event';
 
+import { syncNow } from '@/services/sync/clock';
 interface PageboundLinkDialogProps {
   bookKey: string;
   onClose: () => void;
@@ -73,7 +74,7 @@ const PageboundLinkDialog = ({ bookKey, onClose }: PageboundLinkDialogProps) => 
       await saveConfig(
         envConfig,
         bookKey,
-        { ...current, pagebound: link, updatedAt: Date.now() },
+        { ...current, pagebound: link, updatedAt: syncNow() },
         settings,
       );
       setConfig(bookKey, { pagebound: link });

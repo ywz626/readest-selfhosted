@@ -7,6 +7,7 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { updateBooknoteNoteText } from '@/utils/updateBooknoteNoteText';
 import { applyNoteBubbleTransition, decideNoteBubbleTransition } from '../utils/annotatorUtil';
+import { syncNow } from '@/services/sync/clock';
 
 /**
  * Confirms persistence before closing the editor or updating note bubbles.
@@ -29,7 +30,7 @@ export function useSaveBooknoteNoteText(bookKey: string) {
         if (!config) throw new Error('Book config unavailable');
 
         const previousBooknotes = config.booknotes ?? [];
-        const result = updateBooknoteNoteText(previousBooknotes, booknoteId, noteText, Date.now());
+        const result = updateBooknoteNoteText(previousBooknotes, booknoteId, noteText, syncNow());
         if (!result) throw new Error('Booknote unavailable');
 
         const updatedConfig = updateBooknotes(bookKey, result.booknotes);

@@ -247,6 +247,32 @@ describe('libraryStore', () => {
       expect(book?.readingStatusUpdatedAt).toBeGreaterThan(0);
     });
 
+    test('keeps updatedAt when a relocate lands on the same page', () => {
+      // Every book open re-emits the loaded position. That is not reading, and
+      // the row's updatedAt is the clock `progress` is merged on in the cloud:
+      // bumping it re-published this device's stale percentage as the newest
+      // row and blocked the device that actually read from updating the shelf.
+      useLibraryStore
+        .getState()
+        .setLibrary([makeBook({ hash: 'a', progress: [50, 100], updatedAt: 2000 })]);
+
+      useLibraryStore.getState().updateBookProgress('a', [50, 100], 'reading');
+
+      const book = useLibraryStore.getState().getBookByHash('a');
+      expect(book?.updatedAt).toBe(2000);
+      expect(book?.progress).toEqual([50, 100]);
+    });
+
+    test('advances updatedAt when the page turns', () => {
+      useLibraryStore
+        .getState()
+        .setLibrary([makeBook({ hash: 'a', progress: [50, 100], updatedAt: 2000 })]);
+
+      useLibraryStore.getState().updateBookProgress('a', [51, 100], 'reading');
+
+      expect(useLibraryStore.getState().getBookByHash('a')?.updatedAt).toBeGreaterThan(2000);
+    });
+
     test('does NOT change readingStatusUpdatedAt on a progress-only update', () => {
       useLibraryStore
         .getState()

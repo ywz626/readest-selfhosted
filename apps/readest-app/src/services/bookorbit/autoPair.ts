@@ -12,6 +12,7 @@ import type { BookOrbitManifest } from './manifest';
 import { buildBookOrbitPairing } from './pairing';
 import type { Book, BookConfig } from '@/types/book';
 import type { SystemSettings } from '@/types/settings';
+import { syncNow } from '@/services/sync/clock';
 
 export interface AutoPairDeps {
   book: Book;
@@ -51,7 +52,7 @@ export const autoPairBookOrbitAudiobook = async (deps: AutoPairDeps): Promise<bo
         ...config,
         audiobook,
         viewSettings: { ...config.viewSettings, ttsUseNarration: true },
-        updatedAt: Date.now(),
+        updatedAt: syncNow(),
       } as BookConfig,
       settings,
     );

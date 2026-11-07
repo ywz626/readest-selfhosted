@@ -5,6 +5,7 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { getStyles } from '@/utils/style';
+import { syncNow } from '@/services/sync/clock';
 
 /**
  * Resolve the effective background texture for the library page (issue #4743).
@@ -78,7 +79,14 @@ export const saveViewSettings = async <K extends keyof ViewSettings>(
       }
       const config = getConfig(bookKey);
       if (viewState?.isPrimary && config) {
-        await saveConfig(envConfig, bookKey, config, settings);
+        // `setViewSettings` deliberately leaves the cross-device progress clock
+        // alone, because almost every key here is a device preference. The
+        // exception is `referencePageCount`: it describes the book's print
+        // edition and both channels ship it (file sync stamps its envelope with
+        // `config.updatedAt`, the cloud resolves the key by comparing that
+        // clock), so its writer is the one place that must stamp.
+        const stamped = key === 'referencePageCount' ? { ...config, updatedAt: syncNow() } : config;
+        await saveConfig(envConfig, bookKey, stamped, settings);
       }
     }
   };

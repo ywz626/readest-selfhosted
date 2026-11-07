@@ -11,6 +11,7 @@ import { getIndexFromCfi } from '@/utils/cfi';
 import { incomingNoteWins, nextBooknoteStamp } from '@/utils/booknoteStamp';
 import { removeBookNoteOverlays } from '../utils/annotatorUtil';
 
+import { syncNow } from '@/services/sync/clock';
 export const useNotesSync = (bookKey: string) => {
   const { user } = useAuth();
   const { syncedNotes, syncNotes, lastSyncedAtNotes } = useSync(bookKey);
@@ -113,7 +114,7 @@ export const useNotesSync = (bookKey: string) => {
                 // Page resolution failed — keep original page
               }
             }
-            converted.push({ ...note, cfi, page, updatedAt: Date.now() });
+            converted.push({ ...note, cfi, page, updatedAt: syncNow() });
           }
         } catch {
           // Conversion failed — discard note
@@ -253,7 +254,7 @@ export const useNotesSync = (bookKey: string) => {
             getViewsById(bookKey.split('-')[0]!).forEach((v) => removeBookNoteOverlays(v, local));
             // Stamp the deletion as this device's own change so the next push
             // tombstones the duplicate row under its book hash as well.
-            note.updatedAt = Date.now();
+            note.updatedAt = syncNow();
           }
         } else if (note.type === 'annotation' && note.cfi) {
           const index = getIndexFromCfi(note.cfi);

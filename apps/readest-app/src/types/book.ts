@@ -188,6 +188,15 @@ export interface Book {
   // metadata), so a page-turn that wins whole-row LWW on updatedAt cannot
   // clobber a metadata edit (mirrors readingStatusUpdatedAt / coverUpdatedAt).
   metadataUpdatedAt?: number | null;
+  /**
+   * When the `booknotes` in this book's config last changed. `updatedAt` is the
+   * cross-device PROGRESS clock and an annotation edit is not reading, so it
+   * must not move — yet a peer still has to learn the notes changed. This is
+   * that per-row signal: `updateBooknotes` stamps it, `saveConfig` lifts it onto
+   * the library row, and file sync uses it to know config.json needs a push (and
+   * a pull). Absent/0 = never edited on any device this device has heard from.
+   */
+  notesUpdatedAt?: number | null;
 }
 
 export interface BookGroupType {
@@ -719,6 +728,16 @@ export interface BookConfig {
   lastPushedAtConfig?: number;
   lastPushedAtNotes?: number;
   foliateImportedAt?: number;
+
+  /**
+   * When `booknotes` last changed. Deliberately separate from `updatedAt`: that
+   * one is the cross-device progress clock (the cloud config LWW and
+   * `mergeSyncedConfig` compare it), so an annotation edit that bumped it would
+   * re-publish a stale reading position as the newest record. `saveConfig`
+   * carries this value up to `Book.notesUpdatedAt`, which is what file sync
+   * watches to know config.json has new notes.
+   */
+  notesUpdatedAt?: number;
 
   updatedAt: number;
 }

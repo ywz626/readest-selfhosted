@@ -17,6 +17,7 @@ import { stubTranslation as _ } from '@/utils/misc';
 import { SIZE_PER_LOC, SIZE_PER_TIME_UNIT } from '@/services/constants';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isAbsOfflineCapable, isAudiobook } from '@/utils/audiobook';
+import { syncNow } from '@/services/sync/clock';
 
 /** Valid sort types for the library */
 const VALID_SORT_TYPES: LibrarySortByType[] = Object.values(LibrarySortByType);
@@ -286,7 +287,7 @@ export const applyBookTagEdits = (
   books: Book[],
   selectedHashes: string[],
   edits: BookTagEdits,
-  now = Date.now(),
+  now = syncNow(),
 ): Book[] =>
   books.map((book) => {
     if (book.deletedAt || !selectedHashes.includes(book.hash)) return book;
@@ -1092,7 +1093,7 @@ export type BookContextMenuItemId =
  * every deliberate status edit so the timestamp is never forgotten.
  */
 export const withReadingStatus = (book: Book, status: ReadingStatus | undefined): Book => {
-  const now = Date.now();
+  const now = syncNow();
   return { ...book, readingStatus: status, readingStatusUpdatedAt: now, updatedAt: now };
 };
 

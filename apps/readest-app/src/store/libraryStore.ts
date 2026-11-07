@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Book, BookGroupType, ReadingStatus } from '@/types/book';
 import { EnvConfigType, isTauriAppPlatform } from '@/services/environment';
 import { BOOK_UNGROUPED_NAME } from '@/services/constants';
+import { syncNow } from '@/services/sync/clock';
 import { md5Fingerprint } from '@/utils/md5';
 import { isMainAppWindow } from '@/utils/window';
 
@@ -139,12 +140,23 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (idx === undefined) return;
     const book = library[idx]!;
     const statusChanged = readingStatus !== book.readingStatus;
+    const now = syncNow();
+    // `updatedAt` is this row's merge clock, and `progress` rides it: the cloud
+    // keeps the whole row of whichever device carries the highest `updatedAt`,
+    // and the server's progress piggyback refuses to write onto a row that is
+    // already newer. A relocate fires on every book open (re-emitting the
+    // position that was just loaded), so stamping here on every call let a
+    // mere open outrank the device that actually read — the shelf percentage
+    // then regressed to the opener's stale one and the reading device's fresh
+    // push could never reach the row. Only a page change moves the row clock;
+    // the local `progress` is written every time regardless.
+    const pageMoved = (book.progress?.[0] ?? 0) !== progress[0];
     const updatedBook: Book = {
       ...book,
       progress,
       readingStatus,
-      readingStatusUpdatedAt: statusChanged ? Date.now() : book.readingStatusUpdatedAt,
-      updatedAt: Date.now(),
+      readingStatusUpdatedAt: statusChanged ? now : book.readingStatusUpdatedAt,
+      updatedAt: pageMoved ? now : (book.updatedAt ?? now),
     };
     const newLibrary = library.slice();
     newLibrary[idx] = updatedBook;

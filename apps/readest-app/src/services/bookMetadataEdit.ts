@@ -4,6 +4,7 @@ import { EnvConfigType, isWebAppPlatform } from '@/services/environment';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { getBookWithUpdatedMetadata } from '@/utils/book';
+import { syncNow } from '@/services/sync/clock';
 
 /**
  * Saves a Book Details metadata edit, from the library or from inside the
@@ -57,7 +58,7 @@ export const saveBookMetadataEdit = async (
         }
         if (coverUploaded) {
           updatedBook.coverHash = newCoverHash;
-          updatedBook.coverUpdatedAt = Date.now();
+          updatedBook.coverUpdatedAt = syncNow();
         }
       }
     } catch (error) {

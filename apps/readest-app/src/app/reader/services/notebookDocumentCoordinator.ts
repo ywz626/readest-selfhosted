@@ -13,6 +13,7 @@ import {
   writeNotebookRecovery,
 } from '@/app/reader/utils/notebookRecovery';
 
+import { syncNow } from '@/services/sync/clock';
 const NOTEBOOK_SAVE_DEBOUNCE_MS = 750;
 
 export type NotebookFlushResult = 'clean' | 'saved' | 'failed' | 'waiting-for-position';
@@ -62,7 +63,7 @@ export const createNotebookDocumentCoordinator = ({
   persistBooknotes,
   storage,
   recoveryKey,
-  now = Date.now,
+  now = syncNow,
 }: NotebookDocumentCoordinatorOptions): NotebookDocumentCoordinator => {
   let started = false;
   let unsubscribe: (() => void) | null = null;
